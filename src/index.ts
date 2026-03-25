@@ -137,6 +137,11 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
 
+    // Temporary debug endpoint to verify env binding
+    if (url.pathname === '/editor/debug-env') {
+      return Response.json({ keys: Object.keys(env) });
+    }
+
     // API routes and GitHub Auth — require user session
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/github/')) {
       const user = await getUser(request, env);
@@ -376,7 +381,7 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
   // ──── GITHUB OAUTH ────
   if (url.pathname === '/auth/github/login') {
     const clientId = env.GITHUB_CLIENT_ID;
-    if (!clientId) return new Response("GITHUB_CLIENT_ID missing", { status: 500 });
+    if (!clientId) return new Response("GITHUB_CLIENT_ID missing, val: " + typeof clientId + " " + String(clientId) + " keys: " + Object.keys(env).join(','), { status: 500 });
     const redirectUri = url.origin + (url.hostname.includes('111iridescence.org') ? '/editor' : '') + '/auth/github/callback';
     const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${encodeURIComponent(redirectUri)}`;
     return Response.redirect(redirectUrl, 302);
@@ -404,6 +409,33 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
       return new Response(null, { status: 302, headers: { Location: '/editor' } });
     } catch (e: any) {
       return new Response("OAuth failed: " + e.message, { status: 500 });
+    }
+  }
+
+  // ──── LATEX COMPILER PROXY ────
+  if (url.pathname === '/api/compile-latex' && method === 'POST') {
+    try {
+      const fdForm = await request.formData();
+      const text = fdForm.get('text') as string;
+      if (!text) return new Response("Missing LaTeX source", { status: 400 });
+
+      // latexonline expects a multipart/form-data POST with a "file" field containing the .tex document
+      const compileFd = new FormData();
+      const fileBlob = new Blob([text], { type: 'text/plain' });
+      compileFd.append('file', fileBlob, 'main.tex');
+      
+      const compileRes = await fetch('https://latexonline.cc/compile', { 
+        method: 'POST', 
+        body: compileFd,
+        headers: { 'User-Agent': 'Cloudflare-Worker' }
+      });
+      
+      if (!compileRes.ok) {
+        return new Response(await compileRes.text(), { status: 400 });
+      }
+      return new Response(compileRes.body, { headers: { 'Content-Type': 'application/pdf' } });
+    } catch (e: any) {
+      return new Response(e.message, { status: 500 });
     }
   }
 

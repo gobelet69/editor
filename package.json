@@ -15,5 +15,8 @@
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
 		"wrangler": "^4.77.0"
+	},
+	"dependencies": {
+		"latex.js": "^0.12.6"
 	}
 }

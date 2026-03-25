@@ -133,7 +133,12 @@ markedRenderer.code = function(code, lang) {
     try { return katex.renderToString(code.trim(), { displayMode: true, throwOnError: false }); }
     catch (e) { return `<pre style="color:red">${e.message}</pre>`; }
   }
-  return origCode(code, lang);
+  
+  const rawHtml = origCode(code, lang);
+  const encodedCode = encodeURIComponent(code);
+  const copyBtn = `<button class="btn-copy-code" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodedCode}')).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})" style="position:absolute; top:8px; right:8px; background:rgba(255,255,255,0.1); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; z-index:10; backdrop-filter:blur(4px); transition: background 0.2s;">Copy</button>`;
+  
+  return `<div style="position:relative;">${copyBtn}${rawHtml}</div>`;
 };
 marked.setOptions({ renderer: markedRenderer, breaks: true });
 
@@ -146,16 +151,16 @@ async function renderPreview(content) {
 
   // ── Native LaTeX Document Rendering ──
   if (['tex', 'latex'].includes(currentFileExt)) {
-    try {
-      const generator = new latexjs.HtmlGenerator({ hyphenate: false });
-      const doc = latexjs.parse(content, { generator: generator });
-      previewEl.innerHTML = '';
-      previewEl.appendChild(doc.domFragment());
-      return;
-    } catch (e) {
-      previewEl.innerHTML = `<pre style="color:var(--error); padding: 15px; white-space: pre-wrap;">LaTeX Compile Error:\n\n${esc(e.message)}</pre>`;
-      return;
-    }
+    previewEl.innerHTML = `
+      <div style="padding:20px; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text); background: var(--bg-surface);">
+        <h2 style="margin-bottom:15px; font-weight:600;">LaTeX Document</h2>
+        <p style="margin-bottom:25px; color:var(--muted); max-width:400px; line-height:1.5;">Click compile to send this document to an external LaTeX engine. The full PDF will be securely streamed back here.</p>
+        <button class="btn-primary" onclick="compileLatexAPI()" style="padding:10px 24px; font-size:1.05em; border-radius:8px; display:flex; align-items:center; gap:8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Compile to PDF
+        </button>
+      </div>
+    `;
+    return;
   }
 
   // ── Standard Markdown Rendering ──
@@ -169,6 +174,42 @@ async function renderPreview(content) {
     }
   } catch (e) { console.warn("Mermaid error:", e); }
 }
+
+window.compileLatexAPI = async function() {
+  const content = editor.getValue();
+  previewEl.innerHTML = `<div style="padding:20px; text-align:center; color:var(--muted); display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; background: var(--bg-surface);">
+    <div style="font-size:3em; margin-bottom:20px; animation: spin 2s linear infinite;">⚙️</div>
+    <div style="font-size:1.1em; margin-bottom:8px; color:var(--text);">Compiling on Remote Engine...</div>
+    <div style="font-size:0.9em; opacity:0.8;">This usually takes 2-5 seconds.</div>
+  </div>`;
+  
+  try {
+    const fd = new FormData();
+    fd.append('text', content);
+    
+    const res = await fetch(BASE_PATH + '/api/compile-latex', {
+      method: 'POST',
+      body: fd
+    });
+    
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText);
+    }
+    
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    previewEl.innerHTML = `<iframe src="${url}#toolbar=0" style="width:100%; height:100%; border:none; background:#525659; border-radius:var(--radius);"></iframe>`;
+  } catch(e) {
+    previewEl.innerHTML = `
+      <div style="padding:30px; color:var(--text); overflow:auto; height:100%; background:var(--bg-surface);">
+        <h3 style="color:var(--error); margin-bottom:15px; display:flex; align-items:center; gap:10px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Compilation Failed</h3>
+        <p style="color:var(--muted); margin-bottom:20px;">The LaTeX compiler encountered an error while parsing your document.</p>
+        <pre style="white-space:pre-wrap; margin-top:15px; background:rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.3); padding:20px; border-radius:8px; font-family:monospace; line-height:1.4; color:var(--error); overflow-x:auto;">${esc(e.message)}</pre>
+        <button class="btn-secondary" onclick="renderPreview(editor.getValue())" style="margin-top:25px;">Back to Preview</button>
+      </div>`;
+  }
+};
 
 // ══════════ HOME / PROJECTS ══════════
 
