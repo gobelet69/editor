@@ -528,6 +528,9 @@ function showPrompt(title, defaultVal, cb) {
   modalBody.innerHTML = '<input type="text" id="modal-input" class="modal-input" autocomplete="off" />';
   const inp = document.getElementById('modal-input');
   inp.value = defaultVal || '';
+  document.getElementById('modal-confirm').style.display = '';
+  document.getElementById('modal-confirm').textContent = 'Confirm';
+  document.getElementById('modal-cancel').style.display = '';
   modal.classList.remove('hidden');
   setTimeout(() => inp.focus(), 50);
   modalConfirmCb = () => cb(inp.value);
