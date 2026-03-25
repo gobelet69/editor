@@ -13,7 +13,43 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
-	]
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "editor-db",
+			"database_id": "9109ff91-c3bc-4337-bfb8-cbfd36cb2381"
+		},
+		{
+			"binding": "AUTH_DB",
+			"database_name": "global-auth",
+			"database_id": "ba736065-1d46-450b-a083-efc8ba935939"
+		}
+	],
+	"routes": [
+		{
+			"pattern": "111iridescence.org/editor*",
+			"zone_name": "111iridescence.org"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "COLLAB_ROOM",
+				"class_name": "CollabRoom"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_classes": ["CollabRoom"]
+		}
+	],
+	"assets": {
+		"directory": "./public/",
+		"binding": "ASSETS"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

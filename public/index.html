@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Editor — 111iridescence</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236366f1'/%3E%3Cstop offset='1' stop-color='%23f43f5e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ctext x='16' y='21' font-family='Arial,sans-serif' font-weight='900' font-size='12' fill='white' text-anchor='middle'%3E111%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+  <!-- ═══ HOME SCREEN ═══ -->
+  <div id="home-screen">
+    <!-- LOCAL DEV ONLY: Quick Login Header -->
+    <div id="local-auth-header" style="padding: 10px 20px; background: rgba(255,255,255,0.05); display: flex; justify-content: flex-end; align-items: center; gap: 15px; border-bottom: 1px solid var(--border);">
+      <span style="font-size: 0.85em; color: var(--muted);">Local Dev Testing</span>
+      <input type="text" id="dev-username" placeholder="Username" class="modal-input" style="width: 150px; padding: 4px 8px;" value="admin" />
+      <button onclick="document.cookie='sess=DEV_SESS; path=/'; localStorage.setItem('devUser', document.getElementById('dev-username').value); location.reload();" class="btn-primary" style="padding: 4px 12px;">Login</button>
+      <button onclick="document.cookie='sess=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'; localStorage.removeItem('devUser'); location.reload();" class="btn-secondary" style="padding: 4px 12px;">Logout</button>
+    </div>
+
+    <div class="home-inner">
+      <div class="home-hero">
+        <h2>Your Projects</h2>
+        <p>Create, edit, and collaborate on documents in real time.</p>
+      </div>
+
+      <div class="home-actions">
+        <button id="btn-create-project" class="btn-primary">✨ New Project</button>
+        <button id="btn-import-repo" class="btn-secondary">⬇ Import from GitHub</button>
+      </div>
+
+      <section>
+        <div class="section-title"><span>📁</span><h3>My Projects</h3></div>
+        <div class="card-grid" id="my-projects-grid"></div>
+      </section>
+
+      <section id="shared-section" style="display:none">
+        <div class="section-title"><span>👥</span><h3>Shared with me</h3></div>
+        <div class="card-grid" id="shared-projects-grid"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ═══ EDITOR APP ═══ -->
+  <div id="editor-app" class="hidden">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="sidebar-top">
+        <button id="btn-back-home" class="sidebar-btn" title="Back to projects">← Back</button>
+        <div id="project-name-display" class="sidebar-project-name">Project</div>
+        <div class="sidebar-actions">
+          <button id="btn-new-file" class="sidebar-btn" title="New file">📄 File</button>
+          <button id="btn-new-folder" class="sidebar-btn" title="New folder">📁 Folder</button>
+        </div>
+      </div>
+      <div id="file-tree" class="file-tree"></div>
+      <div class="sidebar-bottom">
+        <button id="btn-invite" class="sidebar-btn full">🔗 Copy Invite Link</button>
+        <button id="btn-git-settings" class="sidebar-btn full">⚙ Git Settings</button>
+        <div class="git-actions">
+          <button id="btn-git-pull" class="sidebar-btn" disabled>↓ Pull</button>
+          <button id="btn-git-push" class="sidebar-btn" disabled>↑ Push</button>
+        </div>
+        <button id="btn-export-pdf" class="sidebar-btn full accent">↓ Export PDF</button>
+      </div>
+    </div>
+
+    <!-- Main workspace -->
+    <div class="main-area">
+      <!-- Tab bar -->
+      <div id="tab-bar" class="tab-bar"></div>
+
+      <!-- Editor toolbar -->
+      <div class="editor-toolbar">
+        <button id="btn-toggle-sidebar" class="toolbar-icon" title="Toggle sidebar">☰</button>
+        <span id="current-file-name" class="file-name-label">No file open</span>
+        <span id="save-status" class="save-status"></span>
+        <div class="toolbar-spacer"></div>
+        <div id="view-toggle" class="view-toggle">
+          <button class="view-btn active" data-view="split" title="Split View">⬜⬜</button>
+          <button class="view-btn" data-view="editor" title="Editor Only">&lt;&gt;</button>
+          <button class="view-btn" data-view="preview" title="Preview Only">👁</button>
+        </div>
+        <div class="toolbar-spacer"></div>
+        <div id="collab-users" class="collab-users"></div>
+        <div id="collab-status" class="collab-status">
+          <span class="status-dot"></span>
+          <span class="status-text">Offline</span>
+        </div>
+        <span id="cursor-info" class="cursor-info">Ln 1, Col 1</span>
+      </div>
+
+      <!-- Workspace (editor + preview) -->
+      <div id="workspace" class="workspace">
+        <div id="editor-pane" class="editor-pane">
+          <textarea id="code-editor"></textarea>
+        </div>
+        <div id="resize-handle" class="resize-handle"></div>
+        <div id="preview-pane" class="preview-pane">
+          <div id="preview-content" class="preview-content"></div>
+        </div>
+      </div>
+
+      <!-- Status bar -->
+      <div class="status-bar">
+        <span id="word-count">0 words</span>
+        <span id="char-count">0 chars</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CONTEXT MENU ═══ -->
+  <div id="context-menu" class="context-menu hidden">
+    <div class="ctx-item" data-action="rename">✏️ Rename</div>
+    <div class="ctx-item" data-action="delete">🗑 Delete</div>
+    <div class="ctx-item" data-action="new-file-in">📄 New file here</div>
+    <div class="ctx-item" data-action="new-folder-in">📁 New folder here</div>
+  </div>
+
+  <!-- ═══ MODAL ═══ -->
+  <div id="modal-container" class="modal-container hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-box">
+      <h3 id="modal-title">Modal</h3>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn-secondary">Cancel</button>
+        <button id="modal-confirm" class="btn-primary">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TOAST ═══ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

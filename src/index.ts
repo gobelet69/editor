@@ -1,18 +1,591 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+// ═══════════════════════════════════════════════
+// Editor Worker — Iridescence · Auth · Collab
+// ═══════════════════════════════════════════════
 
+// ── Role helpers (same as vault/hub) ──
+function normalizeRole(r: string | null | undefined): string {
+  if (r === 'admin') return 'owner';
+  if (r === 'guest+') return 'member';
+  if (r === 'guest') return 'viewer';
+  return r || 'viewer';
+}
+function isOwner(u: any): boolean { return normalizeRole(u?.role) === 'owner'; }
+
+const ROLE_META: Record<string, any> = {
+  owner:  { label: 'Owner',  color: '#f43f5e', bg: 'rgba(244,63,94,0.15)',  border: 'rgba(244,63,94,0.3)',  icon: '🔑' },
+  member: { label: 'Member', color: '#6366f1', bg: 'rgba(99,102,241,0.15)', border: 'rgba(99,102,241,0.3)', icon: '📁' },
+  viewer: { label: 'Viewer', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)',  border: 'rgba(148,163,184,0.2)', icon: '👁' },
+};
+const ROLE_PERMS: Record<string, string[]> = {
+  owner:  ['Upload any file type', 'Delete any file', 'Share files', 'Manage users & roles', 'Access admin panel'],
+  member: ['Upload any file type', 'Delete own files', 'Share files'],
+  viewer: ['Upload PDF files only', 'Delete own files'],
+};
+
+// ── CollabRoom Durable Object ──
+export class CollabRoom {
+  state: DurableObjectState;
+  sessions: Map<WebSocket, { name: string; color: string }>;
+
+  constructor(state: DurableObjectState, _env: Env) {
+    this.state = state;
+    this.sessions = new Map();
+  }
+
+  async fetch(request: Request) {
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return new Response("Expected Upgrade: websocket", { status: 426 });
+    }
+    const url = new URL(request.url);
+    const name = url.searchParams.get('name') || 'Anonymous';
+    const color = url.searchParams.get('color') || this.randomColor();
+    const { 0: client, 1: server } = new WebSocketPair();
+    this.handleSession(server, name, color);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  handleSession(ws: WebSocket, name: string, color: string) {
+    ws.accept();
+    this.sessions.set(ws, { name, color });
+    this.broadcastPresence();
+
+    ws.addEventListener("message", (msg) => {
+      try {
+        const data = typeof msg.data === 'string' ? msg.data : '';
+        const parsed = JSON.parse(data);
+        if (parsed.type === 'presence') {
+          this.sessions.set(ws, { name: parsed.name || name, color: parsed.color || color });
+          this.broadcastPresence();
+          return;
+        }
+        if (parsed.type === 'cursor') {
+          // Broadcast cursor position immediately to everyone else
+          for (const [session] of this.sessions) {
+            if (session !== ws) {
+              try { session.send(JSON.stringify({ type: 'cursor', name: parsed.name || name, color: parsed.color || color, pos: parsed.pos })); } catch (_e) {}
+            }
+          }
+          return;
+        }
+        for (const [session] of this.sessions) {
+          if (session !== ws) {
+            try { session.send(data); } catch (_e) { /* ignore */ }
+          }
+        }
+      } catch (_e) { /* ignore */ }
+    });
+
+    const cleanup = () => { this.sessions.delete(ws); this.broadcastPresence(); };
+    ws.addEventListener("close", cleanup);
+    ws.addEventListener("error", cleanup);
+  }
+
+  broadcastPresence() {
+    const users = Array.from(this.sessions.values());
+    const msg = JSON.stringify({ type: 'presence', users, count: users.length });
+    for (const [session] of this.sessions) {
+      try { session.send(msg); } catch (_e) { /* ignore */ }
+    }
+  }
+
+  randomColor(): string {
+    const colors = ['#58a6ff','#f85149','#3fb950','#d29922','#bc8cff','#f778ba','#79c0ff','#ff7b72'];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+}
+
+// ── Types ──
+export interface Env {
+  DB: D1Database;
+  AUTH_DB: D1Database;
+  COLLAB_ROOM: DurableObjectNamespace;
+  ASSETS: Fetcher;
+  GITHUB_CLIENT_ID: string;
+  GITHUB_CLIENT_SECRET: string;
+}
+
+interface AuthUser {
+  username: string;
+  role: string;
+}
+
+// ── Auth helper ──
+async function getUser(request: Request, env: Env): Promise<AuthUser | null> {
+  const cookie = request.headers.get('Cookie') || '';
+  const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
+  if (!sessId) return null;
+  try {
+    const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first() as any;
+    if (!sess) return null;
+    const du = await env.AUTH_DB.prepare('SELECT role FROM users WHERE username = ?').bind(sess.username).first() as any;
+    return { username: sess.username, role: du?.role || 'viewer' };
+  } catch (_e) { return null; }
+}
+
+// ── Worker entry ──
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response("Hello World!");
-	},
-} satisfies ExportedHandler<Env>;
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders() });
+    }
+
+    // API routes — require auth
+    if (url.pathname.startsWith('/api/')) {
+      const user = await getUser(request, env);
+      if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      const res = await handleApi(request, env, user);
+      for (const [k, v] of Object.entries(corsHeaders())) res.headers.set(k, v);
+      return res;
+    }
+
+    // WebSocket — pass through (auth via cookie checked by client)
+    if (url.pathname.startsWith('/ws/')) {
+      const fileId = url.pathname.replace('/ws/', '');
+      if (!fileId) return new Response("Missing fileId", { status: 400 });
+      const id = env.COLLAB_ROOM.idFromName(fileId);
+      const stub = env.COLLAB_ROOM.get(id);
+      return stub.fetch(request);
+    }
+
+    // Main page — server-render with auth state
+    if (url.pathname === '/' || url.pathname === '/editor' || url.pathname === '/editor/') {
+      const user = await getUser(request, env);
+      if (!user) {
+        const redir = encodeURIComponent(url.pathname);
+        return new Response(null, { status: 302, headers: { Location: `/auth/login?redirect=${redir}` } });
+      }
+      // Serve index.html with injected user data
+      const assetRes = await env.ASSETS.fetch(new Request(new URL('/', url.origin)));
+      let html = await assetRes.text();
+      // Inject user + header before </head>
+      const inject = `<script>window.__USER__=${JSON.stringify({ username: user.username, role: normalizeRole(user.role) })};</script>`;
+      html = html.replace('</head>', `${inject}\n</head>`);
+      // Inject iridescence header after <body>
+      html = html.replace('<body>', `<body>\n${renderIridescenceHeader(user)}`);
+      return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    // Static assets
+    return env.ASSETS.fetch(request);
+  },
+};
+
+// ── Iridescence header (same as vault/hub) ──
+function renderIridescenceHeader(user: AuthUser): string {
+  const role = normalizeRole(user.role);
+  const rm = ROLE_META[role] || ROLE_META.viewer;
+  const perms = ROLE_PERMS[role] || [];
+  const all = ['Upload any file type', 'Delete any file', 'Share files', 'Manage users & roles', 'Access admin panel'];
+  const id = 'edUW';
+
+  return `<header class="iri-header">
+  <a href="/" style="text-decoration:none;display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <span style="width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#f43f5e);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9em;color:#fff;flex-shrink:0;box-shadow:0 0 18px rgba(99,102,241,.5)">111</span>
+    <div style="display:flex;flex-direction:column;line-height:1.25">
+      <span style="font-weight:700;font-size:1.1em;color:#fff;letter-spacing:-.02em">111<span style="color:#6366f1;text-shadow:0 0 20px rgba(99,102,241,.6)">iridescence</span></span>
+      <span style="font-size:.72em;color:#94a3b8;font-weight:500;letter-spacing:.03em">Editor</span>
+    </div>
+  </a>
+  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+    <div class="user-wrap" id="${id}">
+      <button class="user-btn" onclick="document.getElementById('${id}').classList.toggle('open')">
+        ${user.username}<svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="dd">
+        <div class="dd-hdr">
+          <div class="dd-name">${user.username}</div>
+          <span class="role-badge" style="background:${rm.bg};color:${rm.color};border:1px solid ${rm.border}">${rm.icon} ${rm.label}</span>
+          <ul class="perm-list">${all.map(p => { const h = perms.includes(p); return `<li class="${h ? 'ok' : ''}"><span class="pcheck ${h ? 'y' : 'n'}">${h ? '✓' : '✕'}</span>${p}</li>`; }).join('')}</ul>
+        </div>
+        <a href="/auth/account" class="ddl"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>Account Preferences</a>
+        <div class="dd-sep"></div>
+        <a href="/auth/logout" class="ddl out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign Out</a>
+      </div>
+    </div>
+    <script>document.addEventListener('click',e=>{const w=document.getElementById('${id}');if(w&&!w.contains(e.target))w.classList.remove('open');});<\/script>
+  </div>
+</header>`;
+}
+
+function corsHeaders(): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+}
+
+// ── API handler ──
+async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Response> {
+  const url = new URL(request.url);
+  const method = request.method;
+
+  // ──── PROJECTS ────
+  if (url.pathname === '/api/projects') {
+    if (method === 'GET') {
+      // My projects + projects shared with me
+      const { results: owned } = await env.DB.prepare("SELECT * FROM projects WHERE owner = ? ORDER BY created_at DESC").bind(user.username).all();
+      const { results: memberRows } = await env.DB.prepare(
+        "SELECT p.* FROM projects p JOIN project_members pm ON p.id = pm.project_id WHERE pm.username = ? AND p.owner != ? ORDER BY p.created_at DESC"
+      ).bind(user.username, user.username).all();
+      return Response.json({ owned, shared: memberRows });
+    }
+    if (method === 'POST') {
+      const body = await request.json() as any;
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO projects (id, name, description, owner, git_repo, git_branch) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(id, body.name || 'Untitled', body.description || '', user.username, body.git_repo || '', body.git_branch || 'main').run();
+      return Response.json({ id, name: body.name || 'Untitled', owner: user.username });
+    }
+  }
+
+  if (url.pathname.match(/^\/api\/projects\/[^/]+$/)) {
+    const id = url.pathname.split('/api/projects/')[1];
+    if (method === 'GET') {
+      const project = await env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(id).first();
+      if (!project) return new Response("Not found", { status: 404 });
+      return Response.json(project);
+    }
+    if (method === 'PUT') {
+      const body = await request.json() as any;
+      const sets: string[] = [];
+      const vals: any[] = [];
+      if (body.name !== undefined) { sets.push("name = ?"); vals.push(body.name); }
+      if (body.description !== undefined) { sets.push("description = ?"); vals.push(body.description); }
+      if (body.git_repo !== undefined) { sets.push("git_repo = ?"); vals.push(body.git_repo); }
+      if (body.git_branch !== undefined) { sets.push("git_branch = ?"); vals.push(body.git_branch); }
+      if (sets.length > 0) {
+        vals.push(id);
+        await env.DB.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+      }
+      return Response.json({ success: true });
+    }
+    if (method === 'DELETE') {
+      // Only owner can delete
+      const proj = await env.DB.prepare("SELECT owner FROM projects WHERE id = ?").bind(id).first() as any;
+      if (proj && proj.owner !== user.username && !isOwner(user)) {
+        return Response.json({ error: 'Only the project owner can delete' }, { status: 403 });
+      }
+      await env.DB.prepare("DELETE FROM files WHERE project_id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM folders WHERE project_id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM project_members WHERE project_id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM projects WHERE id = ?").bind(id).run();
+      return Response.json({ success: true });
+    }
+  }
+
+  // ──── JOIN PROJECT (via invite link) ────
+  if (url.pathname === '/api/projects/join' && method === 'POST') {
+    const body = await request.json() as any;
+    const projectId = body.project_id;
+    if (!projectId) return Response.json({ error: 'Missing project_id' }, { status: 400 });
+    const project = await env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(projectId).first();
+    if (!project) return Response.json({ error: 'Project not found' }, { status: 404 });
+    // Add as member (ignore if already member/owner)
+    await env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, username) VALUES (?, ?)").bind(projectId, user.username).run();
+    return Response.json({ success: true, project });
+  }
+
+  // ──── PROJECT MEMBERS ────
+  if (url.pathname.match(/^\/api\/projects\/[^/]+\/members$/)) {
+    const projectId = url.pathname.split('/api/projects/')[1].replace('/members', '');
+    if (method === 'GET') {
+      const { results } = await env.DB.prepare("SELECT * FROM project_members WHERE project_id = ?").bind(projectId).all();
+      return Response.json(results);
+    }
+  }
+
+  // ──── FOLDERS (scoped to project) ────
+  if (url.pathname === '/api/folders') {
+    const projectId = url.searchParams.get('project_id');
+    if (method === 'GET') {
+      const q = projectId
+        ? env.DB.prepare("SELECT * FROM folders WHERE project_id = ? ORDER BY name").bind(projectId)
+        : env.DB.prepare("SELECT * FROM folders ORDER BY name");
+      const { results } = await q.all();
+      return Response.json(results);
+    }
+    if (method === 'POST') {
+      const body = await request.json() as any;
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO folders (id, name, parent_id, project_id) VALUES (?, ?, ?, ?)")
+        .bind(id, body.name, body.parent_id || null, body.project_id).run();
+      return Response.json({ id, name: body.name, parent_id: body.parent_id || null, project_id: body.project_id });
+    }
+  }
+
+  if (url.pathname.match(/^\/api\/folders\/[^/]+$/)) {
+    const id = url.pathname.split('/api/folders/')[1];
+    if (method === 'PUT') {
+      const body = await request.json() as any;
+      if (body.name) await env.DB.prepare("UPDATE folders SET name = ? WHERE id = ?").bind(body.name, id).run();
+      return Response.json({ success: true });
+    }
+    if (method === 'DELETE') {
+      await deleteFolderRecursive(env, id);
+      return Response.json({ success: true });
+    }
+  }
+
+  // ──── FILES (scoped to project) ────
+  if (url.pathname === '/api/files') {
+    const projectId = url.searchParams.get('project_id');
+    if (method === 'GET') {
+      const q = projectId
+        ? env.DB.prepare("SELECT id, name, folder_id, project_id FROM files WHERE project_id = ? ORDER BY name").bind(projectId)
+        : env.DB.prepare("SELECT id, name, folder_id, project_id FROM files ORDER BY name");
+      const { results } = await q.all();
+      return Response.json(results);
+    }
+    if (method === 'POST') {
+      const body = await request.json() as any;
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO files (id, name, folder_id, project_id, content) VALUES (?, ?, ?, ?, ?)")
+        .bind(id, body.name, body.folder_id || null, body.project_id, body.content || '').run();
+      return Response.json({ id, name: body.name, folder_id: body.folder_id || null, project_id: body.project_id });
+    }
+  }
+
+  if (url.pathname.match(/^\/api\/files\/[^/]+$/)) {
+    const id = url.pathname.split('/api/files/')[1];
+    if (method === 'GET') {
+      const file = await env.DB.prepare("SELECT * FROM files WHERE id = ?").bind(id).first();
+      return file ? Response.json(file) : new Response("Not found", { status: 404 });
+    }
+    if (method === 'PUT') {
+      const body = await request.json() as any;
+      if (body.content !== undefined) await env.DB.prepare("UPDATE files SET content = ? WHERE id = ?").bind(body.content, id).run();
+      if (body.name !== undefined) await env.DB.prepare("UPDATE files SET name = ? WHERE id = ?").bind(body.name, id).run();
+      if (body.folder_id !== undefined) await env.DB.prepare("UPDATE files SET folder_id = ? WHERE id = ?").bind(body.folder_id, id).run();
+      return Response.json({ success: true });
+    }
+    if (method === 'DELETE') {
+      await env.DB.prepare("DELETE FROM files WHERE id = ?").bind(id).run();
+      return Response.json({ success: true });
+    }
+  }
+
+  // ──── GITHUB OAUTH ────
+  if (url.pathname === '/auth/github/login') {
+    const clientId = env.GITHUB_CLIENT_ID;
+    if (!clientId) return new Response("GITHUB_CLIENT_ID missing", { status: 500 });
+    const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${encodeURIComponent(url.origin + '/auth/github/callback')}`;
+    return Response.redirect(redirectUrl, 302);
+  }
+
+  if (url.pathname === '/auth/github/callback') {
+    const code = url.searchParams.get('code');
+    const clientId = env.GITHUB_CLIENT_ID;
+    const clientSecret = env.GITHUB_CLIENT_SECRET;
+    if (!code || !clientId || !clientSecret) return new Response("Missing params", { status: 400 });
+
+    try {
+      const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code })
+      });
+      const data = await tokenRes.json() as any;
+      if (data.error) throw new Error(data.error_description || data.error);
+
+      const token = data.access_token;
+      // Store in global-auth DB for this user
+      await env.AUTH_DB.prepare("INSERT INTO user_integrations (username, github_token) VALUES (?, ?) ON CONFLICT(username) DO UPDATE SET github_token = excluded.github_token, updated_at = datetime('now')").bind(user.username, token).run();
+      
+      return new Response(null, { status: 302, headers: { Location: '/editor' } });
+    } catch (e: any) {
+      return new Response("OAuth failed: " + e.message, { status: 500 });
+    }
+  }
+
+  // ──── GITHUB API HELPERS ────
+  async function getGithubToken(): Promise<string | null> {
+    const res = await env.AUTH_DB.prepare("SELECT github_token FROM user_integrations WHERE username = ?").bind(user.username).first() as any;
+    return res ? res.github_token : null;
+  }
+
+  if (url.pathname === '/api/git/repos' && method === 'GET') {
+    const token = await getGithubToken();
+    if (!token) return Response.json({ has_token: false });
+    
+    try {
+      // Fetch user repos (up to 100)
+      const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=pushed', {
+        headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'CloudflareEditor', 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (!res.ok) {
+        if (res.status === 401) {
+          // Token revoked/expired, clear it
+          await env.AUTH_DB.prepare("UPDATE user_integrations SET github_token = NULL WHERE username = ?").bind(user.username).run();
+          return Response.json({ has_token: false });
+        }
+        throw new Error("GitHub API error");
+      }
+      const repos = await res.json() as any[];
+      return Response.json({ 
+        has_token: true, 
+        repos: repos.map(r => ({ full_name: r.full_name, default_branch: r.default_branch, private: r.private })) 
+      });
+    } catch (e: any) {
+      return Response.json({ error: e.message }, { status: 500 });
+    }
+  }
+
+  // ──── GIT PUSH ────
+  if (url.pathname === '/api/git/push' && method === 'POST') {
+    const body = await request.json() as any;
+    const { repo, branch, project_id, message } = body;
+    if (!repo || !project_id) return Response.json({ error: "Missing params" }, { status: 400 });
+
+    const token = await getGithubToken();
+    if (!token) return Response.json({ error: "No GitHub token found. Please connect to GitHub." }, { status: 401 });
+
+    const { results: allFiles } = await env.DB.prepare("SELECT * FROM files WHERE project_id = ?").bind(project_id).all() as any;
+    const { results: allFolders } = await env.DB.prepare("SELECT * FROM folders WHERE project_id = ?").bind(project_id).all() as any;
+
+    const folderMap: Record<string, any> = {};
+    for (const f of allFolders) folderMap[f.id] = f;
+
+    function getFolderPath(folderId: string | null): string {
+      if (!folderId || !folderMap[folderId]) return '';
+      const parent = getFolderPath(folderMap[folderId].parent_id);
+      return parent ? `${parent}/${folderMap[folderId].name}` : folderMap[folderId].name;
+    }
+
+    const gh = (path: string, opts: any = {}) => fetch(`https://api.github.com${path}`, {
+      ...opts,
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'CloudflareEditor', ...(opts.headers || {}) }
+    });
+
+    const treeEntries: any[] = [];
+    for (const file of allFiles) {
+      const folderPath = getFolderPath(file.folder_id);
+      const fullPath = folderPath ? `${folderPath}/${file.name}` : file.name;
+      const blobRes = await gh(`/repos/${repo}/git/blobs`, { method: 'POST', body: JSON.stringify({ content: file.content, encoding: 'utf-8' }) });
+      const blob = await blobRes.json() as any;
+      treeEntries.push({ path: fullPath, mode: '100644', type: 'blob', sha: blob.sha });
+    }
+
+    const branchName = branch || 'main';
+    const refRes = await gh(`/repos/${repo}/git/ref/heads/${branchName}`);
+    let parentSha: string | null = null;
+    let baseTreeSha: string | null = null;
+    if (refRes.ok) {
+      const refData = await refRes.json() as any;
+      parentSha = refData.object.sha;
+      const commitRes = await gh(`/repos/${repo}/git/commits/${parentSha}`);
+      const commitData = await commitRes.json() as any;
+      baseTreeSha = commitData.tree.sha;
+    }
+
+    const treeBody: any = { tree: treeEntries };
+    if (baseTreeSha) treeBody.base_tree = baseTreeSha;
+    const treeRes = await gh(`/repos/${repo}/git/trees`, { method: 'POST', body: JSON.stringify(treeBody) });
+    const treeData = await treeRes.json() as any;
+
+    const commitBody: any = { message: message || 'Sync from Editor', tree: treeData.sha };
+    if (parentSha) commitBody.parents = [parentSha];
+    const commitRes2 = await gh(`/repos/${repo}/git/commits`, { method: 'POST', body: JSON.stringify(commitBody) });
+    const newCommit = await commitRes2.json() as any;
+
+    if (parentSha) {
+      await gh(`/repos/${repo}/git/refs/heads/${branchName}`, { method: 'PATCH', body: JSON.stringify({ sha: newCommit.sha, force: true }) });
+    } else {
+      await gh(`/repos/${repo}/git/refs`, { method: 'POST', body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: newCommit.sha }) });
+    }
+
+    return Response.json({ success: true, sha: newCommit.sha });
+  }
+
+  // ──── GIT PULL / IMPORT ────
+  if (url.pathname === '/api/git/pull' && method === 'POST') {
+    const body = await request.json() as any;
+    const { repo, branch, project_id } = body;
+    if (!repo || !project_id) return Response.json({ error: "Missing params" }, { status: 400 });
+
+    const token = await getGithubToken();
+    if (!token) return Response.json({ error: "No GitHub token found. Please connect to GitHub." }, { status: 401 });
+
+    const branchName = branch || 'main';
+    const gh = (path: string, opts: any = {}) => fetch(`https://api.github.com${path}`, {
+      ...opts,
+      headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'CloudflareEditor', ...(opts.headers || {}) }
+    });
+
+    const treeRes = await gh(`/repos/${repo}/git/trees/${branchName}?recursive=1`);
+    if (!treeRes.ok) return Response.json({ error: "Failed to fetch repo tree" }, { status: 400 });
+    const treeData = await treeRes.json() as any;
+
+    await env.DB.prepare("DELETE FROM files WHERE project_id = ?").bind(project_id).run();
+    await env.DB.prepare("DELETE FROM folders WHERE project_id = ?").bind(project_id).run();
+
+    const folderIds: Record<string, string> = {};
+
+    async function ensureFolder(folderPath: string): Promise<string | null> {
+      if (!folderPath) return null;
+      if (folderIds[folderPath]) return folderIds[folderPath];
+      const parts = folderPath.split('/');
+      const name = parts.pop()!;
+      const parentPath = parts.join('/');
+      const parentId = parentPath ? await ensureFolder(parentPath) : null;
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO folders (id, name, parent_id, project_id) VALUES (?, ?, ?, ?)")
+        .bind(id, name, parentId, project_id).run();
+      folderIds[folderPath] = id;
+      return id;
+    }
+
+    for (const item of treeData.tree) {
+      if (item.type !== 'blob') continue;
+      const parts = item.path.split('/');
+      const fileName = parts.pop()!;
+      const folderPath = parts.join('/');
+      const folderId = folderPath ? await ensureFolder(folderPath) : null;
+
+      const blobRes = await gh(`/repos/${repo}/git/blobs/${item.sha}`, {
+        headers: { 'Accept': 'application/vnd.github.v3.raw' }
+      });
+      const content = await blobRes.text();
+
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO files (id, name, folder_id, project_id, content) VALUES (?, ?, ?, ?, ?)")
+        .bind(id, fileName, folderId, project_id, content).run();
+    }
+
+    return Response.json({ success: true });
+  }
+
+  // ──── INVITE BY USERNAME ────
+  if (url.pathname.match(/^\/api\/projects\/[^/]+\/invite$/) && method === 'POST') {
+    const projectId = url.pathname.split('/api/projects/')[1].replace('/invite', '');
+    const body = await request.json() as any;
+    const { username } = body;
+    if (!username) return Response.json({ error: "Missing username" }, { status: 400 });
+
+    // Check if user exists in global-auth
+    const targetUser = await env.AUTH_DB.prepare("SELECT username FROM users WHERE username = ?").bind(username).first();
+    if (!targetUser) return Response.json({ error: "User not found" }, { status: 404 });
+
+    // Ensure permissions (only owner can explicitly invite)
+    const proj = await env.DB.prepare("SELECT owner FROM projects WHERE id = ?").bind(projectId).first() as any;
+    if (proj && proj.owner !== user.username && !isOwner(user)) {
+      return Response.json({ error: 'Only the project owner can invite people' }, { status: 403 });
+    }
+
+    await env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, username) VALUES (?, ?)").bind(projectId, username).run();
+    return Response.json({ success: true, username });
+  }
+
+  return new Response("Not found", { status: 404 });
+}
+
+async function deleteFolderRecursive(env: Env, folderId: string) {
+  const { results: children } = await env.DB.prepare("SELECT id FROM folders WHERE parent_id = ?").bind(folderId).all();
+  for (const child of children as any[]) {
+    await deleteFolderRecursive(env, child.id);
+  }
+  await env.DB.prepare("DELETE FROM files WHERE folder_id = ?").bind(folderId).run();
+  await env.DB.prepare("DELETE FROM folders WHERE id = ?").bind(folderId).run();
+}
