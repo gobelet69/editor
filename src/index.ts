@@ -127,12 +127,18 @@ export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Strip `/editor` prefix from the URL so internal routing works locally and in prod
+    if (url.pathname.startsWith('/editor')) {
+      url.pathname = url.pathname.replace(/^\/editor/, '') || '/';
+      request = new Request(url.toString(), request);
+    }
+
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders() });
     }
 
-    // API routes — require auth
-    if (url.pathname.startsWith('/api/')) {
+    // API routes and GitHub Auth — require user session
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/github/')) {
       const user = await getUser(request, env);
       if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       const res = await handleApi(request, env, user);
@@ -371,7 +377,8 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
   if (url.pathname === '/auth/github/login') {
     const clientId = env.GITHUB_CLIENT_ID;
     if (!clientId) return new Response("GITHUB_CLIENT_ID missing", { status: 500 });
-    const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${encodeURIComponent(url.origin + '/auth/github/callback')}`;
+    const redirectUri = url.origin + (url.hostname.includes('111iridescence.org') ? '/editor' : '') + '/auth/github/callback';
+    const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${encodeURIComponent(redirectUri)}`;
     return Response.redirect(redirectUrl, 302);
   }
 

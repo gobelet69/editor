@@ -1,3 +1,4 @@
+const BASE_PATH = location.pathname.startsWith('/editor') ? '/editor' : '';
 /* ══════════════════════════════════════════════
    Editor — Iridescence · Auth · Collab
    ══════════════════════════════════════════════ */
@@ -97,7 +98,7 @@ function debouncedSave(content) {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
     try {
-      await fetch(`/api/files/${currentFileId}`, {
+      await fetch(`${BASE_PATH}/api/files/${currentFileId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
@@ -154,8 +155,8 @@ async function renderPreview(content) {
 // ══════════ HOME / PROJECTS ══════════
 
 async function loadProjects() {
-  const res = await fetch('/api/projects');
-  if (res.status === 401) { window.location.href = '/auth/login?redirect=/editor'; return; }
+  const res = await fetch(BASE_PATH + '/api/projects');
+  if (res.status === 401) { window.location.href = BASE_PATH + '/auth/login?redirect=/editor'; return; }
   const data = await res.json();
   ownedProjects = data.owned || [];
   sharedProjects = data.shared || [];
@@ -196,7 +197,7 @@ function makeProjectCard(p, isOwned) {
     if (e.target.classList.contains('delete-project')) {
       e.stopPropagation();
       if (confirm(`Delete project "${p.name}" and all its files?`)) {
-        fetch(`/api/projects/${p.id}`, { method: 'DELETE' }).then(() => {
+        fetch(`${BASE_PATH}/api/projects/${p.id}`, { method: 'DELETE' }).then(() => {
           toast(`Deleted "${p.name}"`, 'info');
           loadProjects();
         });
@@ -239,8 +240,8 @@ function goHome() {
 async function loadProjectData() {
   if (!currentProject) return;
   const [fRes, filesRes] = await Promise.all([
-    fetch(`/api/folders?project_id=${currentProject.id}`),
-    fetch(`/api/files?project_id=${currentProject.id}`)
+    fetch(`${BASE_PATH}/api/folders?project_id=${currentProject.id}`),
+    fetch(`${BASE_PATH}/api/files?project_id=${currentProject.id}`)
   ]);
   folders = await fRes.json();
   files = await filesRes.json();
@@ -320,7 +321,7 @@ async function switchTab(id) {
   if (!file) return;
   fileNameEl.textContent = file.name;
   renderTree(); renderTabs();
-  const res = await fetch(`/api/files/${file.id}`);
+  const res = await fetch(`${BASE_PATH}/api/files/${file.id}`);
   const data = await res.json();
   isRemoteChange = true;
   editor.setValue(data.content || '');
@@ -456,7 +457,7 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
   item.onclick = async () => {
     const a = item.dataset.action;
     if (a === 'rename') {
-      const ep = ctxType === 'file' ? `/api/files/${ctxTarget.id}` : `/api/folders/${ctxTarget.id}`;
+      const ep = ctxType === 'file' ? `${BASE_PATH}/api/files/${ctxTarget.id}` : `${BASE_PATH}/api/folders/${ctxTarget.id}`;
       showPrompt('Rename', ctxTarget.name, async (name) => {
         if (!name) return;
         await fetch(ep, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
@@ -466,7 +467,7 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
     }
     if (a === 'delete') {
       if (!confirm(`Delete "${ctxTarget.name}"?`)) return;
-      const ep = ctxType === 'file' ? `/api/files/${ctxTarget.id}` : `/api/folders/${ctxTarget.id}`;
+      const ep = ctxType === 'file' ? `${BASE_PATH}/api/files/${ctxTarget.id}` : `${BASE_PATH}/api/folders/${ctxTarget.id}`;
       await fetch(ep, { method: 'DELETE' });
       if (ctxType === 'file') closeTab(ctxTarget.id);
       toast(`Deleted "${ctxTarget.name}"`, 'info');
@@ -475,7 +476,7 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
     if (a === 'new-file-in') {
       showPrompt('New file in ' + ctxTarget.name, '', async (name) => {
         if (!name) return;
-        const res = await fetch('/api/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, folder_id: ctxTarget.id, project_id: currentProject.id, content: '' }) });
+        const res = await fetch(BASE_PATH + '/api/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, folder_id: ctxTarget.id, project_id: currentProject.id, content: '' }) });
         const d = await res.json();
         await loadProjectData();
         const f = files.find(x => x.id === d.id);
@@ -485,7 +486,7 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
     if (a === 'new-folder-in') {
       showPrompt('New folder in ' + ctxTarget.name, '', async (name) => {
         if (!name) return;
-        await fetch('/api/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parent_id: ctxTarget.id, project_id: currentProject.id }) });
+        await fetch(BASE_PATH + '/api/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parent_id: ctxTarget.id, project_id: currentProject.id }) });
         toast(`Created folder "${name}"`, 'success');
         loadProjectData();
       });
@@ -515,7 +516,7 @@ function showPrompt(title, defaultVal, cb) {
 
 async function checkGitAuth() {
   try {
-    const res = await fetch('/api/git/repos');
+    const res = await fetch(BASE_PATH + '/api/git/repos');
     const data = await res.json();
     return data;
   } catch (e) {
@@ -533,7 +534,7 @@ async function showGitSettings() {
     modalBody.innerHTML = `
       <div style="text-align:center; padding: 20px 0;">
         <p style="margin-bottom: 20px; color: var(--muted);">Connect your GitHub account to sync this project.</p>
-        <button class="btn-primary" onclick="window.location.href='/auth/github/login'" style="width: 100%;">🔗 Connect with GitHub</button>
+        <button class="btn-primary" onclick="window.location.href=BASE_PATH + '/auth/github/login'" style="width: 100%;">🔗 Connect with GitHub</button>
       </div>
     `;
     document.getElementById('modal-confirm').style.display = 'none';
@@ -561,7 +562,7 @@ async function showGitSettings() {
     modalConfirmCb = async () => {
       const gitRepo = document.getElementById('git-repo').value;
       const gitBranch = document.getElementById('git-branch').value.trim() || 'main';
-      await fetch(`/api/projects/${currentProject.id}`, {
+      await fetch(`${BASE_PATH}/api/projects/${currentProject.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ git_repo: gitRepo, git_branch: gitBranch })
@@ -583,7 +584,7 @@ async function showImportDialog() {
     modalBody.innerHTML = `
       <div style="text-align:center; padding: 20px 0;">
         <p style="margin-bottom: 20px; color: var(--muted);">Connect your GitHub account to import a repository.</p>
-        <button class="btn-primary" onclick="window.location.href='/auth/github/login'" style="width: 100%;">🔗 Connect with GitHub</button>
+        <button class="btn-primary" onclick="window.location.href=BASE_PATH + '/auth/github/login'" style="width: 100%;">🔗 Connect with GitHub</button>
       </div>
     `;
     document.getElementById('modal-confirm').style.display = 'none';
@@ -616,7 +617,7 @@ async function showImportDialog() {
       if (!repo) { toast('Please select a repository', 'error'); return; }
       
       toast('Creating project...', 'info');
-      const pRes = await fetch('/api/projects', {
+      const pRes = await fetch(BASE_PATH + '/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, git_repo: repo, git_branch: branch })
@@ -624,7 +625,7 @@ async function showImportDialog() {
       const project = await pRes.json();
       
       toast('Pulling from GitHub...', 'info');
-      const pullRes = await fetch('/api/git/pull', {
+      const pullRes = await fetch(BASE_PATH + '/api/git/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo, branch, project_id: project.id })
@@ -666,7 +667,7 @@ document.getElementById('btn-git-push').onclick = async () => {
   const message = prompt('Commit message:', 'Sync from Editor') || 'Sync from Editor';
   toast('Pushing...', 'info');
   try {
-    const res = await fetch('/api/git/push', {
+    const res = await fetch(BASE_PATH + '/api/git/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo: currentProject.git_repo, branch: currentProject.git_branch || 'main', project_id: currentProject.id, message })
@@ -681,7 +682,7 @@ document.getElementById('btn-git-pull').onclick = async () => {
   if (!confirm('Pull will REPLACE all files in this project. Continue?')) return;
   toast('Pulling...', 'info');
   try {
-    const res = await fetch('/api/git/pull', {
+    const res = await fetch(BASE_PATH + '/api/git/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo: currentProject.git_repo, branch: currentProject.git_branch || 'main', project_id: currentProject.id })
@@ -704,7 +705,7 @@ document.getElementById('btn-new-file').onclick = () => {
   if (!currentProject) return;
   showPrompt('New File Name', '', async (name) => {
     if (!name) return;
-    const res = await fetch('/api/files', {
+    const res = await fetch(BASE_PATH + '/api/files', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, project_id: currentProject.id, content: '' })
@@ -721,7 +722,7 @@ document.getElementById('btn-new-folder').onclick = () => {
   if (!currentProject) return;
   showPrompt('New Folder Name', '', async (name) => {
     if (!name) return;
-    await fetch('/api/folders', {
+    await fetch(BASE_PATH + '/api/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, project_id: currentProject.id })
@@ -746,7 +747,7 @@ document.getElementById('btn-invite').onclick = () => {
     
     // Attempt explicit invite
     try {
-      const res = await fetch(`/api/projects/${currentProject.id}/invite`, {
+      const res = await fetch(`${BASE_PATH}/api/projects/${currentProject.id}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
@@ -801,7 +802,7 @@ document.querySelectorAll('#view-toggle .view-btn').forEach(btn => {
 document.getElementById('btn-create-project').onclick = () => {
   showPrompt('Project Name', '', async (name) => {
     if (!name) return;
-    await fetch('/api/projects', {
+    await fetch(BASE_PATH + '/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
@@ -855,7 +856,7 @@ document.addEventListener('keydown', (e) => {
       const content = editor.getValue();
       clearTimeout(saveTimeout);
       saveStatusEl.textContent = 'Saving...';
-      fetch(`/api/files/${currentFileId}`, {
+      fetch(`${BASE_PATH}/api/files/${currentFileId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
@@ -883,13 +884,13 @@ function randomColor() {
     const projectId = match[1];
     try {
       // Join as member (persists access)
-      await fetch('/api/projects/join', {
+      await fetch(BASE_PATH + '/api/projects/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId })
       });
       // Load and open the project
-      const res = await fetch(`/api/projects/${projectId}`);
+      const res = await fetch(`${BASE_PATH}/api/projects/${projectId}`);
       if (res.ok) {
         const project = await res.json();
         openProject(project);
