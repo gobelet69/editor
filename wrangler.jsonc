@@ -43,7 +43,7 @@
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_classes": ["CollabRoom"]
+			"new_sqlite_classes": ["CollabRoom"]
 		}
 	],
 	"assets": {
