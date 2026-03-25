@@ -138,9 +138,27 @@ markedRenderer.code = function(code, lang) {
 marked.setOptions({ renderer: markedRenderer, breaks: true });
 
 let renderCount = 0;
+let currentFileExt = ''; // Track file type for renderer selection
+
 async function renderPreview(content) {
   renderCount++;
   const rc = renderCount;
+
+  // ── Native LaTeX Document Rendering ──
+  if (['tex', 'latex'].includes(currentFileExt)) {
+    try {
+      const generator = new latexjs.HtmlGenerator({ hyphenate: false });
+      const doc = latexjs.parse(content, { generator: generator });
+      previewEl.innerHTML = '';
+      previewEl.appendChild(doc.domFragment());
+      return;
+    } catch (e) {
+      previewEl.innerHTML = `<pre style="color:var(--error); padding: 15px; white-space: pre-wrap;">LaTeX Compile Error:\n\n${esc(e.message)}</pre>`;
+      return;
+    }
+  }
+
+  // ── Standard Markdown Rendering ──
   const html = marked.parse(renderLatex(content));
   previewEl.innerHTML = html;
   try {
@@ -319,6 +337,9 @@ async function switchTab(id) {
   currentFileId = id;
   const file = files.find(f => f.id === id);
   if (!file) return;
+  
+  currentFileExt = (file.name.split('.').pop() || '').toLowerCase();
+  
   fileNameEl.textContent = file.name;
   renderTree(); renderTabs();
   const res = await fetch(`${BASE_PATH}/api/files/${file.id}`);
@@ -514,6 +535,20 @@ function showPrompt(title, defaultVal, cb) {
 
 // ══════════ GIT / OAUTH ══════════
 
+window.checkAndConnectGitHub = async function() {
+  toast('Connecting to GitHub...', 'info');
+  try {
+    const res = await fetch(BASE_PATH + '/auth/github/login', { redirect: 'manual' });
+    if (res.status === 500) {
+      toast('GitHub Client ID missing in Secrets. Please configure the OAuth App.', 'error', 6000);
+    } else {
+      window.location.href = BASE_PATH + '/auth/github/login';
+    }
+  } catch (e) {
+    toast('Connection failed', 'error');
+  }
+};
+
 async function checkGitAuth() {
   try {
     const res = await fetch(BASE_PATH + '/api/git/repos');
@@ -534,7 +569,7 @@ async function showGitSettings() {
     modalBody.innerHTML = `
       <div style="text-align:center; padding: 20px 0;">
         <p style="margin-bottom: 20px; color: var(--muted);">Connect your GitHub account to sync this project.</p>
-        <button class="btn-primary" onclick="window.location.href=BASE_PATH + '/auth/github/login'" style="width: 100%;">🔗 Connect with GitHub</button>
+        <button class="btn-primary" onclick="checkAndConnectGitHub()" style="width: 100%;">🔗 Connect with GitHub</button>
       </div>
     `;
     document.getElementById('modal-confirm').style.display = 'none';
@@ -584,7 +619,7 @@ async function showImportDialog() {
     modalBody.innerHTML = `
       <div style="text-align:center; padding: 20px 0;">
         <p style="margin-bottom: 20px; color: var(--muted);">Connect your GitHub account to import a repository.</p>
-        <button class="btn-primary" onclick="window.location.href=BASE_PATH + '/auth/github/login'" style="width: 100%;">🔗 Connect with GitHub</button>
+        <button class="btn-primary" onclick="checkAndConnectGitHub()" style="width: 100%;">🔗 Connect with GitHub</button>
       </div>
     `;
     document.getElementById('modal-confirm').style.display = 'none';
@@ -776,6 +811,39 @@ document.getElementById('btn-export-pdf').onclick = () => {
     html2canvas: { scale: 2, useCORS: true },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
   }).save().then(() => toast('PDF exported!', 'success'));
+};
+
+document.getElementById('btn-export-zip').onclick = async () => {
+  if (!currentProject) { toast('Open a project first', 'error'); return; }
+  toast('Preparing ZIP file...', 'info');
+  try {
+    const zip = new JSZip();
+    const foldersById = {};
+    folders.forEach(f => foldersById[f.id] = f);
+    
+    function getPath(folderId) {
+      if (!folderId) return '';
+      const f = foldersById[folderId];
+      return f ? getPath(f.parent_id) + f.name + '/' : '';
+    }
+
+    for (const file of files) {
+      const res = await fetch(`${BASE_PATH}/api/files/${file.id}`);
+      const data = await res.json();
+      zip.file(getPath(file.folder_id) + file.name, data.content || '');
+    }
+    
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentProject.name.replace(/\\s+/g, '_')}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Project exported to ZIP!', 'success');
+  } catch (e) {
+    toast('ZIP export failed: ' + e.message, 'error');
+  }
 };
 
 document.getElementById('btn-toggle-sidebar').onclick = () => {
