@@ -22,14 +22,6 @@
 
   <!-- ═══ HOME SCREEN ═══ -->
   <div id="home-screen">
-    <!-- LOCAL DEV ONLY: Quick Login Header -->
-    <div id="local-auth-header" style="padding: 10px 20px; background: rgba(255,255,255,0.05); display: flex; justify-content: flex-end; align-items: center; gap: 15px; border-bottom: 1px solid var(--border);">
-      <span style="font-size: 0.85em; color: var(--muted);">Local Dev Testing</span>
-      <input type="text" id="dev-username" placeholder="Username" class="modal-input" style="width: 150px; padding: 4px 8px;" value="admin" />
-      <button onclick="document.cookie='sess=DEV_SESS; path=/'; localStorage.setItem('devUser', document.getElementById('dev-username').value); location.reload();" class="btn-primary" style="padding: 4px 12px;">Login</button>
-      <button onclick="document.cookie='sess=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'; localStorage.removeItem('devUser'); location.reload();" class="btn-secondary" style="padding: 4px 12px;">Logout</button>
-    </div>
-
     <div class="home-inner">
       <div class="home-hero">
         <h2>Your Projects</h2>
