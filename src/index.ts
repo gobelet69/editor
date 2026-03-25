@@ -168,6 +168,11 @@ export default {
     }
 
     // Static assets
+    const assetUrl = new URL(request.url);
+    if (assetUrl.pathname.startsWith('/editor/')) {
+      assetUrl.pathname = assetUrl.pathname.replace('/editor/', '/');
+      return env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+    }
     return env.ASSETS.fetch(request);
   },
 };
