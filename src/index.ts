@@ -127,10 +127,14 @@ export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Strip `/editor` prefix from the URL so internal routing works locally and in prod
+    // Find logical path cleanly
+    const isWs = url.pathname.startsWith('/editor/ws/') || url.pathname.startsWith('/ws/');
     if (url.pathname.startsWith('/editor')) {
       url.pathname = url.pathname.replace(/^\/editor/, '') || '/';
-      request = new Request(url.toString(), request);
+      // DO NOT clone request for WebSockets, it strips the Upgrade: websocket header!
+      if (!isWs) {
+        request = new Request(url.toString(), request);
+      }
     }
 
     if (request.method === 'OPTIONS') {
@@ -378,19 +382,27 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
     }
   }
 
+  async function getServerSetting(key: string): Promise<string | undefined> {
+    try {
+      const res = await env.AUTH_DB.prepare("SELECT value FROM server_settings WHERE key = ?").bind(key).first();
+      return res ? (res as any).value : undefined;
+    } catch { return undefined; }
+  }
+
   // ──── GITHUB OAUTH ────
   if (url.pathname === '/auth/github/login') {
-    const clientId = env.GITHUB_CLIENT_ID;
-    if (!clientId) return new Response("GITHUB_CLIENT_ID missing, val: " + typeof clientId + " " + String(clientId) + " keys: " + Object.keys(env).join(','), { status: 500 });
-    const redirectUri = url.origin + (url.hostname.includes('111iridescence.org') ? '/editor' : '') + '/auth/github/callback';
+    const clientId = (await getServerSetting('GITHUB_CLIENT_ID')) || env.GITHUB_CLIENT_ID;
+    if (!clientId) return new Response("GITHUB_CLIENT_ID missing", { status: 500 });
+    // IMPORTANT: Always route back to production branch or the GitHub OAuth security strictly drops the user
+    const redirectUri = 'https://111iridescence.org/editor/auth/github/callback';
     const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${encodeURIComponent(redirectUri)}`;
     return Response.redirect(redirectUrl, 302);
   }
 
   if (url.pathname === '/auth/github/callback') {
     const code = url.searchParams.get('code');
-    const clientId = env.GITHUB_CLIENT_ID;
-    const clientSecret = env.GITHUB_CLIENT_SECRET;
+    const clientId = (await getServerSetting('GITHUB_CLIENT_ID')) || env.GITHUB_CLIENT_ID;
+    const clientSecret = (await getServerSetting('GITHUB_CLIENT_SECRET')) || env.GITHUB_CLIENT_SECRET;
     if (!code || !clientId || !clientSecret) return new Response("Missing params", { status: 400 });
 
     try {
@@ -419,15 +431,13 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
       const text = fdForm.get('text') as string;
       if (!text) return new Response("Missing LaTeX source", { status: 400 });
 
-      // latexonline expects a multipart/form-data POST with a "file" field containing the .tex document
-      const compileFd = new FormData();
-      const fileBlob = new Blob([text], { type: 'text/plain' });
-      compileFd.append('file', fileBlob, 'main.tex');
+      // latexonline seamlessly handles massive URL encoded GET queries without breaking its express route
+      const compileUrl = new URL('https://latexonline.cc/compile');
+      compileUrl.searchParams.set('text', text);
       
-      const compileRes = await fetch('https://latexonline.cc/compile', { 
-        method: 'POST', 
-        body: compileFd,
-        headers: { 'User-Agent': 'Cloudflare-Worker' }
+      const compileRes = await fetch(compileUrl.toString(), { 
+        method: 'GET',
+        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }
       });
       
       if (!compileRes.ok) {

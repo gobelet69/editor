@@ -127,18 +127,35 @@ function renderLatex(text) {
 
 const markedRenderer = new marked.Renderer();
 const origCode = markedRenderer.code.bind(markedRenderer);
-markedRenderer.code = function(code, lang) {
+markedRenderer.code = function(codeOrToken, langOrUndef) {
+  const code = typeof codeOrToken === 'string' ? codeOrToken : codeOrToken.text;
+  const lang = typeof codeOrToken === 'string' ? langOrUndef : codeOrToken.lang;
+
   if (lang === 'mermaid') return `<div class="mermaid">${code}</div>`;
   if (lang === 'latex' || lang === 'tex') {
     try { return katex.renderToString(code.trim(), { displayMode: true, throwOnError: false }); }
     catch (e) { return `<pre style="color:red">${e.message}</pre>`; }
   }
   
-  const rawHtml = origCode(code, lang);
-  const encodedCode = encodeURIComponent(code);
-  const copyBtn = `<button class="btn-copy-code" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodedCode}')).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})" style="position:absolute; top:8px; right:8px; background:rgba(255,255,255,0.1); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; z-index:10; backdrop-filter:blur(4px); transition: background 0.2s;">Copy</button>`;
+  const langColorDef = { javascript: '#f1e05a', typescript: '#2b7489', python: '#3572A5', html: '#e34c26', css: '#563d7c', bash: '#89e051', json: '#89e051', sql: '#e38c00', go: '#00ADD8', rust: '#00ADD8' };
   
-  return `<div style="position:relative;">${copyBtn}${rawHtml}</div>`;
+  let highlightedCode = esc(code);
+  try {
+    if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+      highlightedCode = window.hljs.highlight(code, { language: lang }).value;
+    } else if (window.hljs) {
+      highlightedCode = window.hljs.highlightAuto(code).value;
+    }
+  } catch(e) {}
+  
+  const rawHtml = `<pre><code class="hljs ${lang ? 'language-' + lang : ''}">${highlightedCode}</code></pre>`;
+  
+  const encodedCode = encodeURIComponent(code).replace(/'/g, "%27").replace(/"/g, "%22");
+  const copyBtn = `<button class="btn-copy-code" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodedCode}')).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})" style="position:absolute; top:8px; right:8px; background:rgba(255,255,255,0.1); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; z-index:10; backdrop-filter:blur(4px); transition: background 0.2s;">Copy</button>`;
+  const badgeColor = langColorDef[lang?.toLowerCase()] || 'var(--muted)';
+  const langBadge = lang ? `<span style="position:absolute; top:12px; right:60px; font-size:11px; font-family:monospace; color:${badgeColor}; font-weight:800; text-transform:uppercase; z-index:10; pointer-events:none;">${lang}</span>` : '';
+  
+  return `<div style="position:relative;">${langBadge}${copyBtn}${rawHtml}</div>`;
 };
 marked.setOptions({ renderer: markedRenderer, breaks: true });
 
@@ -435,13 +452,15 @@ function updateRemoteCursor(name, color, pos) {
 
 // ══════════ WEBSOCKET + PRESENCE ══════════
 
-function connectWS(fileId) {
+function connectWS() {
   if (ws) ws.close();
   clearCursors();
   
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws/${fileId}?name=${encodeURIComponent(currentUser.username)}&color=${encodeURIComponent(userColor)}`);
-
+  const loc = window.location;
+  let wsUrl = loc.protocol === 'https:' ? 'wss://' : 'ws://';
+  wsUrl += loc.host + BASE_PATH + '/ws/' + currentFileId + '?name=' + encodeURIComponent(window.__USER__.username) + '&color=' + encodeURIComponent(myColor);
+  
+  ws = new WebSocket(wsUrl);
   ws.onopen = () => {
     collabStatus.classList.add('online');
     collabStatus.querySelector('.status-text').textContent = 'Live';
