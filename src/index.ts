@@ -13,7 +13,7 @@ function isOwner(u: any): boolean { return normalizeRole(u?.role) === 'owner'; }
 
 const ROLE_META: Record<string, any> = {
   owner:  { label: 'Owner',  color: '#f43f5e', bg: 'rgba(244,63,94,0.15)',  border: 'rgba(244,63,94,0.3)',  icon: '🔑' },
-  member: { label: 'Member', color: '#6366f1', bg: 'rgba(99,102,241,0.15)', border: 'rgba(99,102,241,0.3)', icon: '📁' },
+  member: { label: 'Member', color: '#A855F7', bg: 'rgba(168,85,247,0.15)', border: 'rgba(168,85,247,0.3)', icon: '📁' },
   viewer: { label: 'Viewer', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)',  border: 'rgba(148,163,184,0.2)', icon: '👁' },
 };
 const ROLE_PERMS: Record<string, string[]> = {
@@ -197,9 +197,9 @@ function renderIridescenceHeader(user: AuthUser): string {
 
   return `<header class="iri-header">
   <a href="/" style="text-decoration:none;display:flex;align-items:center;gap:10px;flex-shrink:0">
-    <span style="width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#f43f5e);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9em;color:#fff;flex-shrink:0;box-shadow:0 0 18px rgba(99,102,241,.5)">111</span>
+    <span style="width:36px;height:36px;background:linear-gradient(135deg,#A855F7,#EC4899);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9em;color:#fff;flex-shrink:0;box-shadow:0 2px 8px rgba(168,85,247,.3)">111</span>
     <div style="display:flex;flex-direction:column;line-height:1.25">
-      <span style="font-weight:700;font-size:1.1em;color:#fff;letter-spacing:-.02em">111<span style="color:#6366f1;text-shadow:0 0 20px rgba(99,102,241,.6)">iridescence</span></span>
+      <span style="font-weight:700;font-size:1.1em;color:#fff;letter-spacing:-.02em">111<span style="color:#A855F7;text-shadow:0 0 20px rgba(168,85,247,.5)">iridescence</span></span>
       <span style="font-size:.72em;color:#94a3b8;font-weight:500;letter-spacing:.03em">Editor</span>
     </div>
   </a>
@@ -215,6 +215,7 @@ function renderIridescenceHeader(user: AuthUser): string {
           <ul class="perm-list">${all.map(p => { const h = perms.includes(p); return `<li class="${h ? 'ok' : ''}"><span class="pcheck ${h ? 'y' : 'n'}">${h ? '✓' : '✕'}</span>${p}</li>`; }).join('')}</ul>
         </div>
         <a href="/auth/account" class="ddl"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>Account Preferences</a>
+        ${isOwner(user) ? `<a href="/auth/admin" class="ddl"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Admin Panel</a>` : ''}
         <div class="dd-sep"></div>
         <a href="/auth/logout" class="ddl out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign Out</a>
       </div>
