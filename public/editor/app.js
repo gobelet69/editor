@@ -321,6 +321,18 @@ async function loadProjectData() {
   ]);
   folders = await fRes.json();
   files = await filesRes.json();
+
+  // Prune tabs pointing at files that no longer exist (e.g. after git pull).
+  const liveIds = new Set(files.map(f => f.id));
+  openTabs = openTabs.filter(id => liveIds.has(id));
+  if (currentFileId && !liveIds.has(currentFileId)) {
+    currentFileId = null;
+    fileNameEl.textContent = 'No file open';
+    editor.setValue('');
+    previewEl.innerHTML = '';
+    if (ws) ws.close();
+  }
+
   renderTree();
   renderTabs();
 }
