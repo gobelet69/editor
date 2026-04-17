@@ -877,16 +877,33 @@ document.getElementById('btn-invite').onclick = () => {
   });
 };
 
-document.getElementById('btn-export-pdf').onclick = () => {
+document.getElementById('btn-export-pdf').onclick = async () => {
   if (!currentFileId) { toast('Open a file first', 'error'); return; }
   toast('Generating PDF...', 'info');
-  html2pdf().from(previewEl).set({
-    margin: [15, 15, 15, 15],
-    filename: (fileNameEl.textContent || 'export') + '.pdf',
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  }).save().then(() => toast('PDF exported!', 'success'));
+
+  // Build a fresh rendered DOM from the current editor contents, regardless of
+  // what's on screen (view mode, LaTeX compile overlay, etc.).
+  const content = editor.getValue();
+  const staging = document.createElement('div');
+  staging.className = 'preview-content';
+  staging.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:#fafbfc;';
+  staging.innerHTML = marked.parse(renderLatex(content));
+  document.body.appendChild(staging);
+
+  try {
+    await html2pdf().from(staging).set({
+      margin: [15, 15, 15, 15],
+      filename: (fileNameEl.textContent || 'export') + '.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).save();
+    toast('PDF exported!', 'success');
+  } catch (e) {
+    toast('PDF export failed: ' + e.message, 'error');
+  } finally {
+    staging.remove();
+  }
 };
 
 document.getElementById('btn-export-zip').onclick = async () => {
