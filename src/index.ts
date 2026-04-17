@@ -197,7 +197,7 @@ function renderIridescenceHeader(user: AuthUser): string {
 
   return `<header class="iri-header">
   <a href="/" style="text-decoration:none;display:flex;align-items:center;gap:10px;flex-shrink:0">
-    <span style="width:36px;height:36px;background:linear-gradient(135deg,#A855F7,#EC4899);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9em;color:#fff;flex-shrink:0;box-shadow:0 2px 8px rgba(168,85,247,.3)">111</span>
+    <span style="width:36px;height:36px;background:linear-gradient(135deg,#A855F7,#EC4899);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.05em;color:#fff;text-shadow:0 0 12px rgba(255,255,255,.7),0 0 4px rgba(255,255,255,.95);flex-shrink:0;box-shadow:0 2px 8px rgba(168,85,247,.35),0 0 20px rgba(168,85,247,.45)">111</span>
     <div style="display:flex;flex-direction:column;line-height:1.25">
       <span style="font-weight:700;font-size:1.1em;color:#fff;letter-spacing:-.02em">111<span style="color:#A855F7;text-shadow:0 0 20px rgba(168,85,247,.5)">iridescence</span></span>
       <span style="font-size:.72em;color:#94a3b8;font-weight:500;letter-spacing:.03em">Editor</span>
