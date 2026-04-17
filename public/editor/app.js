@@ -837,23 +837,24 @@ document.getElementById('btn-invite').onclick = () => {
   navigator.clipboard.writeText(url);
   
   // 2. Ask if they want to explicitly invite a username
-  showPrompt('Invite User', 'username', async (username) => {
-    if (!username) {
+  showPrompt('Invite User (leave blank to just copy link)', '', async (username) => {
+    const trimmed = (username || '').trim();
+    if (!trimmed) {
       toast('Copied invite link to clipboard', 'info');
       return;
     }
-    
+
     // Attempt explicit invite
     try {
       const res = await fetch(`${BASE_PATH}/api/projects/${currentProject.id}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
+        body: JSON.stringify({ username: trimmed })
       });
       const data = await res.json();
-      
+
       if (res.ok && data.success) {
-        toast(`Successfully invited ${username} & copied link`, 'success');
+        toast(`Successfully invited ${trimmed} & copied link`, 'success');
       } else {
         toast(data.error || 'Failed to invite user', 'error');
         toast('Copied invite link to clipboard anyway', 'info');
