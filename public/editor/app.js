@@ -833,7 +833,7 @@ document.getElementById('btn-new-folder').onclick = () => {
 document.getElementById('btn-invite').onclick = () => {
   if (!currentProject) return;
   // 1. Copy link to clipboard
-  const url = `${location.origin}/editor?project=${currentProject.id}`;
+  const url = `${location.origin}${BASE_PATH}/#p=${currentProject.id}`;
   navigator.clipboard.writeText(url);
   
   // 2. Ask if they want to explicitly invite a username
