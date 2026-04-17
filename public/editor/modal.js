@@ -1,5 +1,5 @@
 /* public/editor/modal.js
-   Modal helpers. Exposes window.Modal = { showPrompt, showConfirm, showInput, hide }.
+   Modal helpers. Exposes window.Modal = { showPrompt, showInput, showConfirm, showCustom, hide }.
    Keyboard: Enter submits, Escape cancels, backdrop click cancels.
 */
 (function () {
@@ -22,12 +22,12 @@
   function fireConfirm() {
     const cb = confirmCb;
     hide();
-    if (cb) cb();
+    if (cb) Promise.resolve(cb()).catch(err => console.error('[Modal] onConfirm error:', err));
   }
   function fireCancel() {
     const cb = cancelCb;
     hide();
-    if (cb) cb();
+    if (cb) Promise.resolve(cb()).catch(err => console.error('[Modal] onCancel error:', err));
   }
 
   modalConfirm.onclick = fireConfirm;
@@ -57,6 +57,7 @@
     modalConfirm.style.display = '';
     modalConfirm.textContent = confirmText;
     modalCancel.style.display = '';
+    modalConfirm.classList.remove('danger');
     modal.classList.remove('hidden');
     setTimeout(() => { inp.focus(); inp.select(); }, 50);
     confirmCb = () => onConfirm?.(inp.value);
@@ -87,6 +88,7 @@
     modalConfirm.style.display = hideConfirm ? 'none' : '';
     modalConfirm.textContent = confirmText;
     modalCancel.style.display = '';
+    modalConfirm.classList.remove('danger');
     modal.classList.remove('hidden');
     confirmCb = onConfirm ? () => onConfirm() : null;
     cancelCb = onCancel ? () => onCancel() : null;
