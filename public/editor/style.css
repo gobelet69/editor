@@ -393,3 +393,6 @@ a:hover { color: var(--accent-pink); }
   font-weight: 600;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
+
+.btn-primary.danger { background: var(--danger); box-shadow: 0 2px 8px rgba(244,63,94,0.30); }
+.btn-primary.danger:hover { box-shadow: 0 4px 14px rgba(244,63,94,0.40); }

@@ -272,12 +272,17 @@ function makeProjectCard(p, isOwned) {
   card.onclick = (e) => {
     if (e.target.classList.contains('delete-project')) {
       e.stopPropagation();
-      if (confirm(`Delete project "${p.name}" and all its files?`)) {
-        fetch(`${BASE_PATH}/api/projects/${p.id}`, { method: 'DELETE' }).then(() => {
+      Modal.showConfirm({
+        title: 'Delete project',
+        message: `Delete project "${p.name}" and all its files? This cannot be undone.`,
+        confirmText: 'Delete',
+        danger: true,
+        onConfirm: async () => {
+          await fetch(`${BASE_PATH}/api/projects/${p.id}`, { method: 'DELETE' });
           toast(`Deleted "${p.name}"`, 'info');
           loadProjects();
-        });
-      }
+        }
+      });
       return;
     }
     openProject(p);
@@ -551,7 +556,7 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
     const a = item.dataset.action;
     if (a === 'rename') {
       const ep = ctxType === 'file' ? `${BASE_PATH}/api/files/${ctxTarget.id}` : `${BASE_PATH}/api/folders/${ctxTarget.id}`;
-      showPrompt('Rename', ctxTarget.name, async (name) => {
+      Modal.showPrompt('Rename', ctxTarget.name, async (name) => {
         if (!name) return;
         await fetch(ep, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
         toast(`Renamed to "${name}"`, 'success');
@@ -559,15 +564,24 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
       });
     }
     if (a === 'delete') {
-      if (!confirm(`Delete "${ctxTarget.name}"?`)) return;
-      const ep = ctxType === 'file' ? `${BASE_PATH}/api/files/${ctxTarget.id}` : `${BASE_PATH}/api/folders/${ctxTarget.id}`;
-      await fetch(ep, { method: 'DELETE' });
-      if (ctxType === 'file') closeTab(ctxTarget.id);
-      toast(`Deleted "${ctxTarget.name}"`, 'info');
-      loadProjectData();
+      Modal.showConfirm({
+        title: `Delete ${ctxType}`,
+        message: `Delete "${ctxTarget.name}"?`,
+        confirmText: 'Delete',
+        danger: true,
+        onConfirm: async () => {
+          const ep = ctxType === 'file'
+            ? `${BASE_PATH}/api/files/${ctxTarget.id}`
+            : `${BASE_PATH}/api/folders/${ctxTarget.id}`;
+          await fetch(ep, { method: 'DELETE' });
+          if (ctxType === 'file') closeTab(ctxTarget.id);
+          toast(`Deleted "${ctxTarget.name}"`, 'info');
+          loadProjectData();
+        }
+      });
     }
     if (a === 'new-file-in') {
-      showPrompt('New file in ' + ctxTarget.name, '', async (name) => {
+      Modal.showPrompt('New file in ' + ctxTarget.name, '', async (name) => {
         if (!name) return;
         const res = await fetch(BASE_PATH + '/api/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, folder_id: ctxTarget.id, project_id: currentProject.id, content: '' }) });
         const d = await res.json();
@@ -577,7 +591,7 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
       });
     }
     if (a === 'new-folder-in') {
-      showPrompt('New folder in ' + ctxTarget.name, '', async (name) => {
+      Modal.showPrompt('New folder in ' + ctxTarget.name, '', async (name) => {
         if (!name) return;
         await fetch(BASE_PATH + '/api/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parent_id: ctxTarget.id, project_id: currentProject.id }) });
         toast(`Created folder "${name}"`, 'success');
@@ -589,24 +603,6 @@ ctxMenu.querySelectorAll('.ctx-item').forEach(item => {
 });
 
 // ══════════ MODAL ══════════
-
-const modal = document.getElementById('modal-container');
-const modalTitle = document.getElementById('modal-title');
-const modalBody = document.getElementById('modal-body');
-let modalConfirmCb = null;
-
-function showPrompt(title, defaultVal, cb) {
-  modalTitle.textContent = title;
-  modalBody.innerHTML = '<input type="text" id="modal-input" class="modal-input" autocomplete="off" />';
-  const inp = document.getElementById('modal-input');
-  inp.value = defaultVal || '';
-  document.getElementById('modal-confirm').style.display = '';
-  document.getElementById('modal-confirm').textContent = 'Confirm';
-  document.getElementById('modal-cancel').style.display = '';
-  modal.classList.remove('hidden');
-  setTimeout(() => inp.focus(), 50);
-  modalConfirmCb = () => cb(inp.value);
-}
 
 // ══════════ GIT / OAUTH ══════════
 
@@ -636,25 +632,27 @@ async function checkGitAuth() {
 
 async function showGitSettings() {
   if (!currentProject) return;
-  modalTitle.textContent = 'GitHub Connection';
-  
+
   const authStatus = await checkGitAuth();
-  
+
   if (!authStatus.has_token) {
-    modalBody.innerHTML = `
+    const bodyHtml = `
       <div style="text-align:center; padding: 20px 0;">
         <p style="margin-bottom: 20px; color: var(--muted);">Connect your GitHub account to sync this project.</p>
         <button class="btn-primary" onclick="checkAndConnectGitHub()" style="width: 100%;">🔗 Connect with GitHub</button>
       </div>
     `;
-    document.getElementById('modal-confirm').style.display = 'none';
+    Modal.showCustom({
+      title: 'GitHub Connection',
+      bodyHtml,
+      hideConfirm: true
+    });
   } else {
-    document.getElementById('modal-confirm').style.display = '';
-    const repoOptions = authStatus.repos.map(r => 
+    const repoOptions = authStatus.repos.map(r =>
       `<option value="${esc(r.full_name)}" ${currentProject.git_repo === r.full_name ? 'selected' : ''}>${esc(r.full_name)}</option>`
     ).join('');
-    
-    modalBody.innerHTML = `
+
+    const bodyHtml = `
       <div class="git-form">
         <label>Select Repository
           <select id="git-repo" class="modal-input">
@@ -668,41 +666,48 @@ async function showGitSettings() {
         <div style="margin-top: 15px; font-size: 0.85em; color: var(--good); text-align: right;">✓ GitHub Connected</div>
       </div>
     `;
-    
-    modalConfirmCb = async () => {
-      const gitRepo = document.getElementById('git-repo').value;
-      const gitBranch = document.getElementById('git-branch').value.trim() || 'main';
-      await fetch(`${BASE_PATH}/api/projects/${currentProject.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ git_repo: gitRepo, git_branch: gitBranch })
-      });
-      currentProject.git_repo = gitRepo;
-      currentProject.git_branch = gitBranch;
-      updateGitButtons();
-      toast('Git settings saved', 'success');
-    };
+
+    Modal.showCustom({
+      title: 'GitHub Connection',
+      bodyHtml,
+      confirmText: 'Save',
+      hideConfirm: false,
+      onConfirm: async () => {
+        const gitRepo = document.getElementById('git-repo').value;
+        const gitBranch = document.getElementById('git-branch').value.trim() || 'main';
+        await fetch(`${BASE_PATH}/api/projects/${currentProject.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ git_repo: gitRepo, git_branch: gitBranch })
+        });
+        currentProject.git_repo = gitRepo;
+        currentProject.git_branch = gitBranch;
+        updateGitButtons();
+        toast('Git settings saved', 'success');
+      }
+    });
   }
-  modal.classList.remove('hidden');
 }
 
 async function showImportDialog() {
-  modalTitle.textContent = 'Import from GitHub';
   const authStatus = await checkGitAuth();
-  
+
   if (!authStatus.has_token) {
-    modalBody.innerHTML = `
+    const bodyHtml = `
       <div style="text-align:center; padding: 20px 0;">
         <p style="margin-bottom: 20px; color: var(--muted);">Connect your GitHub account to import a repository.</p>
         <button class="btn-primary" onclick="checkAndConnectGitHub()" style="width: 100%;">🔗 Connect with GitHub</button>
       </div>
     `;
-    document.getElementById('modal-confirm').style.display = 'none';
+    Modal.showCustom({
+      title: 'Import from GitHub',
+      bodyHtml,
+      hideConfirm: true
+    });
   } else {
-    document.getElementById('modal-confirm').style.display = '';
     const repoOptions = authStatus.repos.map(r => `<option value="${esc(r.full_name)}">${esc(r.full_name)}</option>`).join('');
-    
-    modalBody.innerHTML = `
+
+    const bodyHtml = `
       <div class="git-form">
         <label>Project Name
           <input type="text" id="import-name" class="modal-input" placeholder="My Imported Project" />
@@ -718,46 +723,47 @@ async function showImportDialog() {
         </label>
       </div>
     `;
-    
-    modalConfirmCb = async () => {
-      const name = document.getElementById('import-name').value.trim() || 'Imported Project';
-      const repo = document.getElementById('import-repo').value;
-      const branch = document.getElementById('import-branch').value.trim() || 'main';
-      
-      if (!repo) { toast('Please select a repository', 'error'); return; }
-      
-      toast('Creating project...', 'info');
-      const pRes = await fetch(BASE_PATH + '/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, git_repo: repo, git_branch: branch })
-      });
-      const project = await pRes.json();
-      
-      toast('Pulling from GitHub...', 'info');
-      const pullRes = await fetch(BASE_PATH + '/api/git/pull', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo, branch, project_id: project.id })
-      });
-      const pullData = await pullRes.json();
-      
-      if (pullData.success) {
-        toast('Imported successfully!', 'success');
-        await loadProjects();
-        const found = [...ownedProjects, ...sharedProjects].find(x => x.id === project.id);
-        if (found) openProject(found);
-      } else {
-        toast('Import failed: ' + (pullData.error || 'Unknown error'), 'error');
-      }
-    };
-  }
-  modal.classList.remove('hidden');
-}
 
-document.getElementById('modal-cancel').onclick = () => modal.classList.add('hidden');
-document.getElementById('modal-confirm').onclick = () => { if (modalConfirmCb) modalConfirmCb(); modal.classList.add('hidden'); };
-document.querySelector('.modal-backdrop')?.addEventListener('click', () => modal.classList.add('hidden'));
+    Modal.showCustom({
+      title: 'Import from GitHub',
+      bodyHtml,
+      confirmText: 'Import',
+      hideConfirm: false,
+      onConfirm: async () => {
+        const name = document.getElementById('import-name').value.trim() || 'Imported Project';
+        const repo = document.getElementById('import-repo').value;
+        const branch = document.getElementById('import-branch').value.trim() || 'main';
+
+        if (!repo) { toast('Please select a repository', 'error'); return; }
+
+        toast('Creating project...', 'info');
+        const pRes = await fetch(BASE_PATH + '/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, git_repo: repo, git_branch: branch })
+        });
+        const project = await pRes.json();
+
+        toast('Pulling from GitHub...', 'info');
+        const pullRes = await fetch(BASE_PATH + '/api/git/pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo, branch, project_id: project.id })
+        });
+        const pullData = await pullRes.json();
+
+        if (pullData.success) {
+          toast('Imported successfully!', 'success');
+          await loadProjects();
+          const found = [...ownedProjects, ...sharedProjects].find(x => x.id === project.id);
+          if (found) openProject(found);
+        } else {
+          toast('Import failed: ' + (pullData.error || 'Unknown error'), 'error');
+        }
+      }
+    });
+  }
+}
 
 // ══════════ GIT PUSH/PULL ══════════
 
@@ -772,39 +778,59 @@ async function updateGitButtons() {
 
 document.getElementById('btn-git-settings').onclick = showGitSettings;
 
-document.getElementById('btn-git-push').onclick = async () => {
+document.getElementById('btn-git-push').onclick = () => {
   if (!currentProject?.git_repo) { toast('Configure Git settings first', 'error'); return; }
-  const message = prompt('Commit message:', 'Sync from Editor') || 'Sync from Editor';
-  toast('Pushing...', 'info');
-  try {
-    const res = await fetch(BASE_PATH + '/api/git/push', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo: currentProject.git_repo, branch: currentProject.git_branch || 'main', project_id: currentProject.id, message })
-    });
-    const d = await res.json();
-    d.success ? toast(`Pushed! (${d.sha?.substring(0,7)})`, 'success') : toast(d.error || 'Push failed', 'error');
-  } catch (e) { toast('Push failed: ' + e.message, 'error'); }
+  Modal.showInput({
+    title: 'Git push',
+    defaultValue: 'Sync from Editor',
+    placeholder: 'Commit message',
+    confirmText: 'Push',
+    onConfirm: async (raw) => {
+      const message = (raw || '').trim() || 'Sync from Editor';
+      toast('Pushing...', 'info');
+      try {
+        const res = await fetch(BASE_PATH + '/api/git/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: currentProject.git_repo,
+            branch: currentProject.git_branch || 'main',
+            project_id: currentProject.id,
+            message
+          })
+        });
+        const d = await res.json();
+        d.success ? toast(`Pushed! (${d.sha?.substring(0,7)})`, 'success') : toast(d.error || 'Push failed', 'error');
+      } catch (e) { toast('Push failed: ' + e.message, 'error'); }
+    }
+  });
 };
 
-document.getElementById('btn-git-pull').onclick = async () => {
+document.getElementById('btn-git-pull').onclick = () => {
   if (!currentProject?.git_repo) { toast('Configure Git settings first', 'error'); return; }
-  if (!confirm('Pull will REPLACE all files in this project. Continue?')) return;
-  toast('Pulling...', 'info');
-  try {
-    const res = await fetch(BASE_PATH + '/api/git/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo: currentProject.git_repo, branch: currentProject.git_branch || 'main', project_id: currentProject.id })
-    });
-    const d = await res.json();
-    if (d.success) {
-      toast('Pulled!', 'success');
-      openTabs = []; currentFileId = null; fileNameEl.textContent = 'No file open';
-      editor.setValue(''); previewEl.innerHTML = '';
-      await loadProjectData();
-    } else { toast(d.error || 'Pull failed', 'error'); }
-  } catch (e) { toast('Pull failed: ' + e.message, 'error'); }
+  Modal.showConfirm({
+    title: 'Pull from GitHub',
+    message: 'Pull will REPLACE all files in this project. Continue?',
+    confirmText: 'Pull',
+    danger: true,
+    onConfirm: async () => {
+      toast('Pulling...', 'info');
+      try {
+        const res = await fetch(BASE_PATH + '/api/git/pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo: currentProject.git_repo, branch: currentProject.git_branch || 'main', project_id: currentProject.id })
+        });
+        const d = await res.json();
+        if (d.success) {
+          toast('Pulled!', 'success');
+          openTabs = []; currentFileId = null; fileNameEl.textContent = 'No file open';
+          editor.setValue(''); previewEl.innerHTML = '';
+          await loadProjectData();
+        } else { toast(d.error || 'Pull failed', 'error'); }
+      } catch (e) { toast('Pull failed: ' + e.message, 'error'); }
+    }
+  });
 };
 
 // ══════════ SIDEBAR BUTTONS ══════════
@@ -813,7 +839,7 @@ document.getElementById('btn-back-home').onclick = goHome;
 
 document.getElementById('btn-new-file').onclick = () => {
   if (!currentProject) return;
-  showPrompt('New File Name', '', async (name) => {
+  Modal.showPrompt('New File Name', '', async (name) => {
     if (!name) return;
     const res = await fetch(BASE_PATH + '/api/files', {
       method: 'POST',
@@ -830,7 +856,7 @@ document.getElementById('btn-new-file').onclick = () => {
 
 document.getElementById('btn-new-folder').onclick = () => {
   if (!currentProject) return;
-  showPrompt('New Folder Name', '', async (name) => {
+  Modal.showPrompt('New Folder Name', '', async (name) => {
     if (!name) return;
     await fetch(BASE_PATH + '/api/folders', {
       method: 'POST',
@@ -849,7 +875,7 @@ document.getElementById('btn-invite').onclick = () => {
   navigator.clipboard.writeText(url);
   
   // 2. Ask if they want to explicitly invite a username
-  showPrompt('Invite User (leave blank to just copy link)', '', async (username) => {
+  Modal.showPrompt('Invite User (leave blank to just copy link)', '', async (username) => {
     const trimmed = (username || '').trim();
     if (!trimmed) {
       toast('Copied invite link to clipboard', 'info');
@@ -961,7 +987,7 @@ document.querySelectorAll('#view-toggle .view-btn').forEach(btn => {
 // ══════════ PROJECT CREATE ══════════
 
 document.getElementById('btn-create-project').onclick = () => {
-  showPrompt('Project Name', '', async (name) => {
+  Modal.showPrompt('Project Name', '', async (name) => {
     if (!name) return;
     await fetch(BASE_PATH + '/api/projects', {
       method: 'POST',
