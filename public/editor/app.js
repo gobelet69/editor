@@ -267,7 +267,10 @@ function makeProjectCard(p, isOwned) {
       ${!isOwned ? `<span>👤 ${esc(p.owner || '')}</span>` : ''}
       <span>${p.created_at ? new Date(p.created_at).toLocaleDateString() : ''}</span>
     </div>
-    ${isOwned ? '<button class="delete-project" title="Delete project">×</button>' : ''}
+    ${isOwned ? `
+      <button class="card-icon-btn rename-project" title="Rename">✎</button>
+      <button class="card-icon-btn delete-project" title="Delete project">×</button>
+    ` : ''}
   `;
   card.onclick = (e) => {
     if (e.target.classList.contains('delete-project')) {
@@ -280,6 +283,26 @@ function makeProjectCard(p, isOwned) {
         onConfirm: async () => {
           await fetch(`${BASE_PATH}/api/projects/${p.id}`, { method: 'DELETE' });
           toast(`Deleted "${p.name}"`, 'info');
+          loadProjects();
+        }
+      });
+      return;
+    }
+    if (e.target.classList.contains('rename-project')) {
+      e.stopPropagation();
+      Modal.showInput({
+        title: 'Rename project',
+        defaultValue: p.name,
+        confirmText: 'Rename',
+        onConfirm: async (raw) => {
+          const name = (raw || '').trim();
+          if (!name) return;
+          await fetch(`${BASE_PATH}/api/projects/${p.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          toast(`Renamed to "${name}"`, 'success');
           loadProjects();
         }
       });
@@ -921,6 +944,29 @@ document.getElementById('btn-git-pull').onclick = () => {
 // ══════════ SIDEBAR BUTTONS ══════════
 
 document.getElementById('btn-back-home').onclick = goHome;
+
+document.getElementById('project-name-display').onclick = () => {
+  if (!currentProject) return;
+  const isOwnerHere = currentProject.owner === currentUser.username || currentUser.role === 'owner';
+  if (!isOwnerHere) return;
+  Modal.showInput({
+    title: 'Rename project',
+    defaultValue: currentProject.name,
+    confirmText: 'Rename',
+    onConfirm: async (raw) => {
+      const name = (raw || '').trim();
+      if (!name) return;
+      await fetch(`${BASE_PATH}/api/projects/${currentProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      currentProject.name = name;
+      document.getElementById('project-name-display').textContent = name;
+      toast('Renamed', 'success');
+    }
+  });
+};
 
 document.getElementById('btn-new-file').onclick = () => {
   if (!currentProject) return;

@@ -156,13 +156,18 @@ a:hover { color: var(--accent-pink); }
 .project-card:hover h3 { color: var(--accent); }
 .project-card p { font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; }
 .project-card .meta { font-size: 0.7rem; color: var(--text-muted); display: flex; gap: 12px; align-items: center; font-family: var(--font-mono); }
-.project-card .delete-project {
-  position: absolute; top: 10px; right: 10px; background: var(--danger-soft);
-  color: var(--danger); border: 1px solid rgba(244,63,94,0.25); border-radius: var(--radius-sm);
+.project-card .card-icon-btn {
+  position: absolute; top: 10px; background: var(--surface-soft);
+  color: var(--text-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm);
   width: 28px; height: 28px; cursor: pointer; font-size: 0.9em; opacity: 0;
-  transition: opacity var(--transition); display: flex; align-items: center; justify-content: center;
+  transition: opacity var(--transition), color var(--transition); display: flex; align-items: center; justify-content: center;
 }
-.project-card:hover .delete-project { opacity: 1; }
+.project-card .rename-project { right: 44px; }
+.project-card .delete-project { right: 10px; color: var(--danger); background: var(--danger-soft); border-color: rgba(244,63,94,0.25); }
+.project-card:hover .card-icon-btn { opacity: 1; }
+.project-card .rename-project:hover { color: var(--accent); }
+.sidebar-project-name { cursor: pointer; }
+.sidebar-project-name:hover { color: var(--accent); }
 .empty-message { color: var(--text-muted); text-align: center; padding: 40px 0; }
 
 /* ══════ EDITOR APP ══════ */
