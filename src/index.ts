@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════
 
 import type { AuthUser } from './auth';
-import { normalizeRole, isGlobalOwner, getUser } from './auth';
+import { normalizeRole, isGlobalOwner, getUser, getProjectAccess, getFileProjectId, getFolderProjectId } from './auth';
 
 // ── Role helpers (same as vault/hub) ──
 function isOwner(u: any): boolean { return isGlobalOwner(u); }
@@ -238,10 +238,11 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
 
   if (url.pathname.match(/^\/api\/projects\/[^/]+$/)) {
     const id = url.pathname.split('/api/projects/')[1];
+    const access = await getProjectAccess(env, user, id);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     if (method === 'GET') {
-      const project = await env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(id).first();
-      if (!project) return new Response("Not found", { status: 404 });
-      return Response.json(project);
+      return Response.json(access.project);
     }
     if (method === 'PUT') {
       const body = await request.json() as any;
@@ -258,9 +259,7 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
       return Response.json({ success: true });
     }
     if (method === 'DELETE') {
-      // Only owner can delete
-      const proj = await env.DB.prepare("SELECT owner FROM projects WHERE id = ?").bind(id).first() as any;
-      if (proj && proj.owner !== user.username && !isOwner(user)) {
+      if (access.projectRole !== 'owner') {
         return Response.json({ error: 'Only the project owner can delete' }, { status: 403 });
       }
       await env.DB.prepare("DELETE FROM files WHERE project_id = ?").bind(id).run();
@@ -286,6 +285,9 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
   // ──── PROJECT MEMBERS ────
   if (url.pathname.match(/^\/api\/projects\/[^/]+\/members$/)) {
     const projectId = url.pathname.split('/api/projects/')[1].replace('/members', '');
+    const access = await getProjectAccess(env, user, projectId);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     if (method === 'GET') {
       const { results } = await env.DB.prepare("SELECT * FROM project_members WHERE project_id = ?").bind(projectId).all();
       return Response.json(results);
@@ -294,25 +296,31 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
 
   // ──── FOLDERS (scoped to project) ────
   if (url.pathname === '/api/folders') {
-    const projectId = url.searchParams.get('project_id');
+    const projectId = url.searchParams.get('project_id') || ((await request.clone().json().catch(() => ({}))) as any).project_id;
+    if (!projectId) return Response.json({ error: 'Missing project_id' }, { status: 400 });
+    const access = await getProjectAccess(env, user, projectId);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     if (method === 'GET') {
-      const q = projectId
-        ? env.DB.prepare("SELECT * FROM folders WHERE project_id = ? ORDER BY name").bind(projectId)
-        : env.DB.prepare("SELECT * FROM folders ORDER BY name");
-      const { results } = await q.all();
+      const { results } = await env.DB.prepare("SELECT * FROM folders WHERE project_id = ? ORDER BY name").bind(projectId).all();
       return Response.json(results);
     }
     if (method === 'POST') {
       const body = await request.json() as any;
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO folders (id, name, parent_id, project_id) VALUES (?, ?, ?, ?)")
-        .bind(id, body.name, body.parent_id || null, body.project_id).run();
-      return Response.json({ id, name: body.name, parent_id: body.parent_id || null, project_id: body.project_id });
+        .bind(id, body.name, body.parent_id || null, projectId).run();
+      return Response.json({ id, name: body.name, parent_id: body.parent_id || null, project_id: projectId });
     }
   }
 
   if (url.pathname.match(/^\/api\/folders\/[^/]+$/)) {
     const id = url.pathname.split('/api/folders/')[1];
+    const pid = await getFolderProjectId(env, id);
+    if (!pid) return Response.json({ error: 'Folder not found' }, { status: 404 });
+    const access = await getProjectAccess(env, user, pid);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     if (method === 'PUT') {
       const body = await request.json() as any;
       if (body.name) await env.DB.prepare("UPDATE folders SET name = ? WHERE id = ?").bind(body.name, id).run();
@@ -326,25 +334,31 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
 
   // ──── FILES (scoped to project) ────
   if (url.pathname === '/api/files') {
-    const projectId = url.searchParams.get('project_id');
+    const projectId = url.searchParams.get('project_id') || ((await request.clone().json().catch(() => ({}))) as any).project_id;
+    if (!projectId) return Response.json({ error: 'Missing project_id' }, { status: 400 });
+    const access = await getProjectAccess(env, user, projectId);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     if (method === 'GET') {
-      const q = projectId
-        ? env.DB.prepare("SELECT id, name, folder_id, project_id FROM files WHERE project_id = ? ORDER BY name").bind(projectId)
-        : env.DB.prepare("SELECT id, name, folder_id, project_id FROM files ORDER BY name");
-      const { results } = await q.all();
+      const { results } = await env.DB.prepare("SELECT id, name, folder_id, project_id FROM files WHERE project_id = ? ORDER BY name").bind(projectId).all();
       return Response.json(results);
     }
     if (method === 'POST') {
       const body = await request.json() as any;
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO files (id, name, folder_id, project_id, content) VALUES (?, ?, ?, ?, ?)")
-        .bind(id, body.name, body.folder_id || null, body.project_id, body.content || '').run();
-      return Response.json({ id, name: body.name, folder_id: body.folder_id || null, project_id: body.project_id });
+        .bind(id, body.name, body.folder_id || null, projectId, body.content || '').run();
+      return Response.json({ id, name: body.name, folder_id: body.folder_id || null, project_id: projectId });
     }
   }
 
   if (url.pathname.match(/^\/api\/files\/[^/]+$/)) {
     const id = url.pathname.split('/api/files/')[1];
+    const pid = await getFileProjectId(env, id);
+    if (!pid) return Response.json({ error: 'File not found' }, { status: 404 });
+    const access = await getProjectAccess(env, user, pid);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     if (method === 'GET') {
       const file = await env.DB.prepare("SELECT * FROM files WHERE id = ?").bind(id).first();
       return file ? Response.json(file) : new Response("Not found", { status: 404 });
@@ -468,6 +482,9 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
     const { repo, branch, project_id, message } = body;
     if (!repo || !project_id) return Response.json({ error: "Missing params" }, { status: 400 });
 
+    const access = await getProjectAccess(env, user, project_id);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     const token = await getGithubToken();
     if (!token) return Response.json({ error: "No GitHub token found. Please connect to GitHub." }, { status: 401 });
 
@@ -534,6 +551,9 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
     const { repo, branch, project_id } = body;
     if (!repo || !project_id) return Response.json({ error: "Missing params" }, { status: 400 });
 
+    const access = await getProjectAccess(env, user, project_id);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+
     const token = await getGithubToken();
     if (!token) return Response.json({ error: "No GitHub token found. Please connect to GitHub." }, { status: 401 });
 
@@ -589,19 +609,18 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
   // ──── INVITE BY USERNAME ────
   if (url.pathname.match(/^\/api\/projects\/[^/]+\/invite$/) && method === 'POST') {
     const projectId = url.pathname.split('/api/projects/')[1].replace('/invite', '');
+    const access = await getProjectAccess(env, user, projectId);
+    if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+    if (access.projectRole !== 'owner') {
+      return Response.json({ error: 'Only the project owner can invite people' }, { status: 403 });
+    }
+
     const body = await request.json() as any;
     const { username } = body;
     if (!username) return Response.json({ error: "Missing username" }, { status: 400 });
 
-    // Check if user exists in global-auth
     const targetUser = await env.AUTH_DB.prepare("SELECT username FROM users WHERE username = ?").bind(username).first();
     if (!targetUser) return Response.json({ error: "User not found" }, { status: 404 });
-
-    // Ensure permissions (only owner can explicitly invite)
-    const proj = await env.DB.prepare("SELECT owner FROM projects WHERE id = ?").bind(projectId).first() as any;
-    if (proj && proj.owner !== user.username && !isOwner(user)) {
-      return Response.json({ error: 'Only the project owner can invite people' }, { status: 403 });
-    }
 
     await env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, username) VALUES (?, ?)").bind(projectId, username).run();
     return Response.json({ success: true, username });
