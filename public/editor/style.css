@@ -69,8 +69,8 @@ a:hover { color: var(--accent-pink); }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 56px;
-  padding: 0 20px;
+  height: 64px;
+  padding: 0 24px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
@@ -112,7 +112,7 @@ a:hover { color: var(--accent-pink); }
 
 /* ══════ HOME SCREEN ══════ */
 #home-screen {
-  height: calc(100vh - 56px);
+  height: calc(100vh - 64px);
   overflow-y: auto;
   padding: 40px 24px 80px;
 }
@@ -168,7 +168,7 @@ a:hover { color: var(--accent-pink); }
 /* ══════ EDITOR APP ══════ */
 #editor-app {
   display: flex;
-  height: calc(100vh - 56px);
+  height: calc(100vh - 64px);
   overflow: hidden;
 }
 

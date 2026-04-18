@@ -201,10 +201,25 @@ function renderIridescenceHeader(user: AuthUser): string {
     <span style="width:36px;height:36px;background:linear-gradient(135deg,#A855F7,#EC4899);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.05em;color:#fff;text-shadow:0 0 12px rgba(255,255,255,.7),0 0 4px rgba(255,255,255,.95);flex-shrink:0;box-shadow:0 2px 8px rgba(168,85,247,.35),0 0 20px rgba(168,85,247,.45)">111</span>
     <div style="display:flex;flex-direction:column;line-height:1.25">
       <span style="font-weight:700;font-size:1.1em;color:#fff;letter-spacing:-.02em">111<span style="color:#A855F7;text-shadow:0 0 20px rgba(168,85,247,.5)">iridescence</span></span>
-      <span style="font-size:.72em;color:#94a3b8;font-weight:500;letter-spacing:.03em">Editor</span>
+      <span style="font-size:.72em;color:#94a3b8;font-weight:500;letter-spacing:.03em">Hub</span>
     </div>
   </a>
   <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+    <div class="user-wrap" id="${appsId}">
+      <button class="user-btn" onclick="document.getElementById('${appsId}').classList.toggle('open')">
+        Apps<svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="dd">
+        <a href="/" class="ddl">🏠 Hub</a>
+        <a href="/vault" class="ddl">🔒 Vault</a>
+        <a href="/habits" class="ddl">📈 Habits</a>
+        <a href="/todo" class="ddl">✅ Todo</a>
+        <a href="/courses" class="ddl">🎓 Courses</a>
+        <a href="/editor" class="ddl">📝 Editor</a>
+        <a href="/dashboard" class="ddl">📊 Dashboard</a>
+        <a href="/feed" class="ddl">📰 Feed</a>
+      </div>
+    </div>
     <div class="user-wrap" id="${id}">
       <button class="user-btn" onclick="document.getElementById('${id}').classList.toggle('open')">
         ${user.username}<svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
@@ -219,21 +234,6 @@ function renderIridescenceHeader(user: AuthUser): string {
         ${isOwner(user) ? `<a href="/auth/admin" class="ddl"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Admin Panel</a>` : ''}
         <div class="dd-sep"></div>
         <a href="/auth/logout" class="ddl out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign Out</a>
-      </div>
-    </div>
-    <div class="user-wrap" id="${appsId}">
-      <button class="user-btn" onclick="document.getElementById('${appsId}').classList.toggle('open')">
-        Apps<svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-      </button>
-      <div class="dd">
-        <a href="/" class="ddl">🏠 Hub</a>
-        <a href="/vault" class="ddl">🔒 Vault</a>
-        <a href="/habits" class="ddl">📈 Habits</a>
-        <a href="/todo" class="ddl">✅ Todo</a>
-        <a href="/courses" class="ddl">🎓 Courses</a>
-        <a href="/editor" class="ddl">📝 Editor</a>
-        <a href="/dashboard" class="ddl">📊 Dashboard</a>
-        <a href="/feed" class="ddl">📰 Feed</a>
       </div>
     </div>
     <script>document.addEventListener('click',e=>{const w=document.getElementById('${id}');const a=document.getElementById('${appsId}');if(w&&!w.contains(e.target))w.classList.remove('open');if(a&&!a.contains(e.target))a.classList.remove('open');});<\/script>
