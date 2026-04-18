@@ -626,6 +626,36 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
     return Response.json({ success: true, username });
   }
 
+  // Member management — remove
+  {
+    const m = url.pathname.match(/^\/api\/projects\/([^/]+)\/members\/([^/]+)$/);
+    if (m && method === 'DELETE') {
+      const [, projectId, target] = m;
+      const access = await getProjectAccess(env, user, projectId);
+      if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+      if (access.projectRole !== 'owner') {
+        return Response.json({ error: 'Only the project owner can remove members' }, { status: 403 });
+      }
+      if (target === (access.project as any).owner) {
+        return Response.json({ error: 'Cannot remove the project owner' }, { status: 400 });
+      }
+      await env.DB.prepare("DELETE FROM project_members WHERE project_id = ? AND username = ?").bind(projectId, target).run();
+      return Response.json({ success: true });
+    }
+    if (m && method === 'PUT') {
+      const [, projectId, target] = m;
+      const access = await getProjectAccess(env, user, projectId);
+      if (!access.ok) return Response.json({ error: access.error }, { status: access.status });
+      if (access.projectRole !== 'owner') {
+        return Response.json({ error: 'Only the project owner can change roles' }, { status: 403 });
+      }
+      const body = await request.json() as any;
+      const role = body.role || 'editor';
+      await env.DB.prepare("UPDATE project_members SET role = ? WHERE project_id = ? AND username = ?").bind(role, projectId, target).run();
+      return Response.json({ success: true });
+    }
+  }
+
   return new Response("Not found", { status: 404 });
 }
 
