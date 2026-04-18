@@ -2,14 +2,11 @@
 // Editor Worker — Iridescence · Auth · Collab
 // ═══════════════════════════════════════════════
 
+import type { AuthUser } from './auth';
+import { normalizeRole, isGlobalOwner, getUser } from './auth';
+
 // ── Role helpers (same as vault/hub) ──
-function normalizeRole(r: string | null | undefined): string {
-  if (r === 'admin') return 'owner';
-  if (r === 'guest+') return 'member';
-  if (r === 'guest') return 'viewer';
-  return r || 'viewer';
-}
-function isOwner(u: any): boolean { return normalizeRole(u?.role) === 'owner'; }
+function isOwner(u: any): boolean { return isGlobalOwner(u); }
 
 const ROLE_META: Record<string, any> = {
   owner:  { label: 'Owner',  color: '#f43f5e', bg: 'rgba(244,63,94,0.15)',  border: 'rgba(244,63,94,0.3)',  icon: '🔑' },
@@ -102,24 +99,6 @@ export interface Env {
   ASSETS: Fetcher;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
-}
-
-interface AuthUser {
-  username: string;
-  role: string;
-}
-
-// ── Auth helper ──
-async function getUser(request: Request, env: Env): Promise<AuthUser | null> {
-  const cookie = request.headers.get('Cookie') || '';
-  const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
-  if (!sessId) return null;
-  try {
-    const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first() as any;
-    if (!sess) return null;
-    const du = await env.AUTH_DB.prepare('SELECT role FROM users WHERE username = ?').bind(sess.username).first() as any;
-    return { username: sess.username, role: du?.role || 'viewer' };
-  } catch (_e) { return null; }
 }
 
 // ── Worker entry ──
