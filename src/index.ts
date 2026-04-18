@@ -194,6 +194,7 @@ function renderIridescenceHeader(user: AuthUser): string {
   const perms = ROLE_PERMS[role] || [];
   const all = ['Upload any file type', 'Delete any file', 'Share files', 'Manage users & roles', 'Access admin panel'];
   const id = 'edUW';
+  const appsId = 'edApps';
 
   return `<header class="iri-header">
   <a href="/" style="text-decoration:none;display:flex;align-items:center;gap:10px;flex-shrink:0">
@@ -220,7 +221,22 @@ function renderIridescenceHeader(user: AuthUser): string {
         <a href="/auth/logout" class="ddl out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign Out</a>
       </div>
     </div>
-    <script>document.addEventListener('click',e=>{const w=document.getElementById('${id}');if(w&&!w.contains(e.target))w.classList.remove('open');});<\/script>
+    <div class="user-wrap" id="${appsId}">
+      <button class="user-btn" onclick="document.getElementById('${appsId}').classList.toggle('open')">
+        Apps<svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="dd">
+        <a href="/" class="ddl">🏠 Hub</a>
+        <a href="/vault" class="ddl">🔒 Vault</a>
+        <a href="/habits" class="ddl">📈 Habits</a>
+        <a href="/todo" class="ddl">✅ Todo</a>
+        <a href="/courses" class="ddl">🎓 Courses</a>
+        <a href="/editor" class="ddl">📝 Editor</a>
+        <a href="/dashboard" class="ddl">📊 Dashboard</a>
+        <a href="/feed" class="ddl">📰 Feed</a>
+      </div>
+    </div>
+    <script>document.addEventListener('click',e=>{const w=document.getElementById('${id}');const a=document.getElementById('${appsId}');if(w&&!w.contains(e.target))w.classList.remove('open');if(a&&!a.contains(e.target))a.classList.remove('open');});<\/script>
   </div>
 </header>`;
 }
