@@ -765,6 +765,91 @@ async function showImportDialog() {
   }
 }
 
+async function showMembersDialog() {
+  if (!currentProject) return;
+  const isOwnerHere = currentProject.owner === currentUser.username || currentUser.role === 'owner';
+  const res = await fetch(`${BASE_PATH}/api/projects/${currentProject.id}/members`);
+  const members = res.ok ? await res.json() : [];
+
+  const ownerRow = `
+    <div class="member-row">
+      <span class="member-avatar" style="background:${randomColor()}">${esc(currentProject.owner[0].toUpperCase())}</span>
+      <div class="member-info">
+        <div class="member-name">${esc(currentProject.owner)}</div>
+        <div class="member-role">Owner</div>
+      </div>
+    </div>`;
+
+  const memberRows = members.filter(m => m.username !== currentProject.owner).map(m => `
+    <div class="member-row" data-username="${esc(m.username)}">
+      <span class="member-avatar" style="background:${randomColor()}">${esc(m.username[0].toUpperCase())}</span>
+      <div class="member-info">
+        <div class="member-name">${esc(m.username)}</div>
+        <div class="member-role">${esc(m.role || 'editor')}</div>
+      </div>
+      ${isOwnerHere ? `<button class="member-remove" title="Remove" data-username="${esc(m.username)}">×</button>` : ''}
+    </div>`).join('');
+
+  const inviteBlock = isOwnerHere ? `
+    <div class="member-invite">
+      <input type="text" id="member-invite-input" class="modal-input" placeholder="username to invite" />
+      <button class="btn-primary" id="member-invite-btn">Invite</button>
+    </div>` : '';
+
+  Modal.showCustom({
+    title: 'Project Members',
+    bodyHtml: `<div class="members-list">${ownerRow}${memberRows || '<p style="color:var(--text-muted);padding:12px 0">No other members yet.</p>'}</div>${inviteBlock}`,
+    hideConfirm: true,
+    confirmText: 'Close',
+  });
+
+  setTimeout(() => {
+    document.querySelectorAll('.member-remove').forEach(btn => {
+      btn.onclick = async () => {
+        const username = btn.dataset.username;
+        Modal.showConfirm({
+          title: 'Remove member',
+          message: `Remove ${username} from this project?`,
+          confirmText: 'Remove',
+          danger: true,
+          onConfirm: async () => {
+            const r = await fetch(`${BASE_PATH}/api/projects/${currentProject.id}/members/${encodeURIComponent(username)}`, { method: 'DELETE' });
+            if (r.ok) {
+              toast(`Removed ${username}`, 'success');
+              showMembersDialog();
+            } else {
+              const err = await r.json().catch(() => ({}));
+              toast(err.error || 'Failed to remove', 'error');
+            }
+          }
+        });
+      };
+    });
+    const inviteBtn = document.getElementById('member-invite-btn');
+    if (inviteBtn) {
+      inviteBtn.onclick = async () => {
+        const input = document.getElementById('member-invite-input');
+        const username = (input.value || '').trim();
+        if (!username) { toast('Enter a username', 'error'); return; }
+        const r = await fetch(`${BASE_PATH}/api/projects/${currentProject.id}/invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username })
+        });
+        const d = await r.json();
+        if (r.ok && d.success) {
+          toast(`Invited ${username}`, 'success');
+          showMembersDialog();
+        } else {
+          toast(d.error || 'Invite failed', 'error');
+        }
+      };
+    }
+  }, 0);
+}
+
+document.getElementById('btn-members').onclick = showMembersDialog;
+
 // ══════════ GIT PUSH/PULL ══════════
 
 async function updateGitButtons() {
