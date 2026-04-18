@@ -773,7 +773,7 @@ async function showMembersDialog() {
 
   const ownerRow = `
     <div class="member-row">
-      <span class="member-avatar" style="background:${randomColor()}">${esc(currentProject.owner[0].toUpperCase())}</span>
+      <span class="member-avatar" style="background:${randomColor()}">${esc((currentProject.owner[0] || '?').toUpperCase())}</span>
       <div class="member-info">
         <div class="member-name">${esc(currentProject.owner)}</div>
         <div class="member-role">Owner</div>
@@ -782,7 +782,7 @@ async function showMembersDialog() {
 
   const memberRows = members.filter(m => m.username !== currentProject.owner).map(m => `
     <div class="member-row" data-username="${esc(m.username)}">
-      <span class="member-avatar" style="background:${randomColor()}">${esc(m.username[0].toUpperCase())}</span>
+      <span class="member-avatar" style="background:${randomColor()}">${esc((m.username[0] || '?').toUpperCase())}</span>
       <div class="member-info">
         <div class="member-name">${esc(m.username)}</div>
         <div class="member-role">${esc(m.role || 'editor')}</div>
