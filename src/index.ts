@@ -20,76 +20,7 @@ const ROLE_PERMS: Record<string, string[]> = {
 };
 
 // ── CollabRoom Durable Object ──
-export class CollabRoom {
-  state: DurableObjectState;
-  sessions: Map<WebSocket, { name: string; color: string }>;
-
-  constructor(state: DurableObjectState, _env: Env) {
-    this.state = state;
-    this.sessions = new Map();
-  }
-
-  async fetch(request: Request) {
-    if (request.headers.get("Upgrade") !== "websocket") {
-      return new Response("Expected Upgrade: websocket", { status: 426 });
-    }
-    const url = new URL(request.url);
-    const name = url.searchParams.get('name') || 'Anonymous';
-    const color = url.searchParams.get('color') || this.randomColor();
-    const { 0: client, 1: server } = new WebSocketPair();
-    this.handleSession(server, name, color);
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  handleSession(ws: WebSocket, name: string, color: string) {
-    ws.accept();
-    this.sessions.set(ws, { name, color });
-    this.broadcastPresence();
-
-    ws.addEventListener("message", (msg) => {
-      try {
-        const data = typeof msg.data === 'string' ? msg.data : '';
-        const parsed = JSON.parse(data);
-        if (parsed.type === 'presence') {
-          this.sessions.set(ws, { name: parsed.name || name, color: parsed.color || color });
-          this.broadcastPresence();
-          return;
-        }
-        if (parsed.type === 'cursor') {
-          // Broadcast cursor position immediately to everyone else
-          for (const [session] of this.sessions) {
-            if (session !== ws) {
-              try { session.send(JSON.stringify({ type: 'cursor', name: parsed.name || name, color: parsed.color || color, pos: parsed.pos })); } catch (_e) {}
-            }
-          }
-          return;
-        }
-        for (const [session] of this.sessions) {
-          if (session !== ws) {
-            try { session.send(data); } catch (_e) { /* ignore */ }
-          }
-        }
-      } catch (_e) { /* ignore */ }
-    });
-
-    const cleanup = () => { this.sessions.delete(ws); this.broadcastPresence(); };
-    ws.addEventListener("close", cleanup);
-    ws.addEventListener("error", cleanup);
-  }
-
-  broadcastPresence() {
-    const users = Array.from(this.sessions.values());
-    const msg = JSON.stringify({ type: 'presence', users, count: users.length });
-    for (const [session] of this.sessions) {
-      try { session.send(msg); } catch (_e) { /* ignore */ }
-    }
-  }
-
-  randomColor(): string {
-    const colors = ['#58a6ff','#f85149','#3fb950','#d29922','#bc8cff','#f778ba','#79c0ff','#ff7b72'];
-    return colors[Math.floor(Math.random() * colors.length)];
-  }
-}
+export { CollabRoom } from './collab-room';
 
 // ── Types ──
 export interface Env {
@@ -140,7 +71,10 @@ export default {
       if (!fileId) return new Response("Missing fileId", { status: 400 });
       const id = env.COLLAB_ROOM.idFromName(fileId);
       const stub = env.COLLAB_ROOM.get(id);
-      return stub.fetch(request);
+      // Forward the request but ensure ?fileId= is always present for the DO.
+      const forward = new URL(request.url);
+      forward.searchParams.set('fileId', fileId);
+      return stub.fetch(new Request(forward.toString(), request));
     }
 
     // Main page — server-render with auth state
