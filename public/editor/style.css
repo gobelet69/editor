@@ -412,3 +412,17 @@ a:hover { color: var(--accent-pink); }
 .member-remove:hover { color: var(--danger); border-color: var(--danger); }
 .member-invite { display: flex; gap: 6px; margin-top: 10px; }
 .member-invite .modal-input { flex: 1; }
+
+.latex-landing { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; height:100%; padding:20px; text-align:center; background: var(--bg); }
+.latex-landing h2 { font-size:1.4rem; font-weight:700; color: var(--text); }
+.latex-landing p { color: var(--text-secondary); max-width: 420px; line-height:1.5; }
+.latex-compiling { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:10px; background: var(--bg); color: var(--text-secondary); }
+.latex-compiling .spinner { font-size: 3em; animation: spin 2s linear infinite; }
+.latex-compiling .hint { font-size:.9em; opacity:.7; }
+@keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
+.latex-viewer { position: relative; width:100%; height:100%; background:#525659; }
+.latex-viewer iframe { width:100%; height:100%; border:none; }
+.latex-recompile { position: absolute; top: 8px; right: 8px; z-index: 5; }
+.latex-error { padding:30px; color: var(--text); overflow:auto; height:100%; background: var(--bg); }
+.latex-error h3 { color: var(--danger); margin-bottom: 12px; }
+.latex-error pre { white-space:pre-wrap; margin-top:15px; background:rgba(244,63,94,0.1); border:1px solid rgba(244,63,94,0.3); padding:20px; border-radius:8px; font-family:var(--font-mono); color: var(--danger); overflow-x:auto; }
