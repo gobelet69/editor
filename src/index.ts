@@ -425,6 +425,18 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
     const { results: allFiles } = await env.DB.prepare("SELECT * FROM files WHERE project_id = ?").bind(project_id).all() as any;
     const { results: allFolders } = await env.DB.prepare("SELECT * FROM folders WHERE project_id = ?").bind(project_id).all() as any;
 
+    // Flush each file's DO so its latest Y.Doc text is written to D1 before we read it.
+    await Promise.all((allFiles as any[]).map(async (f) => {
+      try {
+        const id = env.COLLAB_ROOM.idFromName(f.id);
+        const stub = env.COLLAB_ROOM.get(id);
+        await stub.fetch(`https://do.internal/flush?fileId=${encodeURIComponent(f.id)}`);
+      } catch {}
+    }));
+
+    // Re-read files to pick up any freshly flushed content.
+    const { results: freshFiles } = await env.DB.prepare("SELECT * FROM files WHERE project_id = ?").bind(project_id).all() as any;
+
     const folderMap: Record<string, any> = {};
     for (const f of allFolders) folderMap[f.id] = f;
 
@@ -440,7 +452,7 @@ async function handleApi(request: Request, env: Env, user: AuthUser): Promise<Re
     });
 
     const treeEntries: any[] = [];
-    for (const file of allFiles) {
+    for (const file of freshFiles) {
       const folderPath = getFolderPath(file.folder_id);
       const fullPath = folderPath ? `${folderPath}/${file.name}` : file.name;
       const blobRes = await gh(`/repos/${repo}/git/blobs`, { method: 'POST', body: JSON.stringify({ content: file.content, encoding: 'utf-8' }) });
