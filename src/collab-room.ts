@@ -1,6 +1,6 @@
 // src/collab-room.ts — CRDT sync server (one Y.Doc per file)
 import * as Y from 'yjs';
-import { readSyncMessage, writeSyncStep1, writeUpdate, messageYjsSyncStep2 } from 'y-protocols/sync';
+import { readSyncMessage, writeSyncStep1, messageYjsSyncStep2 } from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
@@ -20,7 +20,7 @@ export class CollabRoom implements DurableObject {
   private state: DurableObjectState;
   private env: Env;
   private doc: Y.Doc | null = null;
-  private docLoaded = false;
+  private loadingPromise: Promise<void> | null = null;
   private awareness: awarenessProtocol.Awareness | null = null;
   private persistTimer: any = null;
   private fileId: string | null = null;
@@ -55,7 +55,9 @@ export class CollabRoom implements DurableObject {
     const server = pair[1];
 
     // Hibernatable WebSocket: let the runtime own the connection.
-    const attachment: Attachment = { username, color, clientId: this.doc!.clientID };
+    const clientIdRaw = url.searchParams.get('clientId');
+    const clientId = clientIdRaw ? parseInt(clientIdRaw, 10) : this.doc!.clientID;
+    const attachment: Attachment = { username, color, clientId };
     server.serializeAttachment(attachment);
     this.state.acceptWebSocket(server);
 
@@ -143,8 +145,11 @@ export class CollabRoom implements DurableObject {
     }
   }
 
-  private async ensureLoaded() {
-    if (this.docLoaded) return;
+  private ensureLoaded(): Promise<void> {
+    return (this.loadingPromise ??= this.loadDoc());
+  }
+
+  private async loadDoc(): Promise<void> {
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
@@ -152,13 +157,11 @@ export class CollabRoom implements DurableObject {
     if (stored) {
       Y.applyUpdate(this.doc, new Uint8Array(stored));
     } else if (this.fileId) {
-      // First-ever connect for this file: seed from D1 plain text.
       const row = await this.env.DB.prepare('SELECT content FROM files WHERE id = ?').bind(this.fileId).first() as any;
       if (row?.content) {
         this.doc.getText('content').insert(0, row.content);
       }
     }
-    this.docLoaded = true;
   }
 
   private schedulePersist() {
