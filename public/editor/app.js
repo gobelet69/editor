@@ -16,9 +16,6 @@ let folders = [];
 let files = [];
 let currentFileId = null;
 let openTabs = [];
-let ws = null;
-let isRemoteChange = false;
-let collabUsers = [];
 let currentView = 'split';
 
 // Random color for presence
@@ -55,23 +52,12 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
 editor.on('cursorActivity', () => {
   const p = editor.getCursor();
   cursorInfoEl.textContent = `Ln ${p.line + 1}, Col ${p.ch + 1}`;
-  
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'cursor', pos: p }));
-  }
 });
 
-editor.on('change', (inst, changeObj) => {
+editor.on('change', (inst) => {
   const content = inst.getValue();
   renderPreview(content);
   updateStats(content);
-  if (!isRemoteChange && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'change', content }));
-  }
-  if (!isRemoteChange) {
-    saveStatusEl.textContent = 'Saving...';
-    debouncedSave(content);
-  }
 });
 
 // ── Toast ──
@@ -89,26 +75,6 @@ function updateStats(content) {
   const w = content.trim() ? content.trim().split(/\s+/).length : 0;
   wordCountEl.textContent = `${w} word${w !== 1 ? 's' : ''}`;
   charCountEl.textContent = `${content.length} char${content.length !== 1 ? 's' : ''}`;
-}
-
-// ── Auto-save ──
-let saveTimeout = null;
-function debouncedSave(content) {
-  if (!currentFileId) return;
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(async () => {
-    try {
-      await fetch(`${BASE_PATH}/api/files/${currentFileId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
-      });
-      saveStatusEl.textContent = 'Saved';
-      setTimeout(() => { if (saveStatusEl.textContent === 'Saved') saveStatusEl.textContent = ''; }, 2000);
-    } catch (e) {
-      saveStatusEl.textContent = 'Save failed';
-    }
-  }, 600);
 }
 
 // ══════════ RENDERING ══════════
@@ -336,7 +302,7 @@ async function openProject(project) {
   fileNameEl.textContent = 'No file open';
   editor.setValue('');
   previewEl.innerHTML = '';
-  if (ws) ws.close();
+  Collab.disconnect();
 
   await loadProjectData();
   updateGitButtons();
@@ -349,7 +315,7 @@ function goHome() {
   for (const url of latexPdfByFile.values()) { try { URL.revokeObjectURL(url); } catch {} }
   latexPdfByFile.clear();
   currentProject = null;
-  if (ws) ws.close();
+  Collab.disconnect();
   history.replaceState(null, '', location.pathname);
   loadProjects();
 }
@@ -371,7 +337,7 @@ async function loadProjectData() {
     fileNameEl.textContent = 'No file open';
     editor.setValue('');
     previewEl.innerHTML = '';
-    if (ws) ws.close();
+    Collab.disconnect();
   }
 
   renderTree();
@@ -440,7 +406,7 @@ function closeTab(id) {
   if (stale) { try { URL.revokeObjectURL(stale); } catch {} latexPdfByFile.delete(id); }
   if (currentFileId === id) {
     if (openTabs.length > 0) { switchTab(openTabs[openTabs.length - 1]); }
-    else { currentFileId = null; fileNameEl.textContent = 'No file open'; editor.setValue(''); previewEl.innerHTML = ''; if (ws) ws.close(); }
+    else { currentFileId = null; fileNameEl.textContent = 'No file open'; editor.setValue(''); previewEl.innerHTML = ''; Collab.disconnect(); }
   }
   renderTabs();
 }
@@ -455,13 +421,15 @@ async function switchTab(id) {
   
   fileNameEl.textContent = file.name;
   renderTree(); renderTabs();
-  const res = await fetch(`${BASE_PATH}/api/files/${file.id}`);
-  const data = await res.json();
-  isRemoteChange = true;
-  editor.setValue(data.content || '');
-  isRemoteChange = false;
-  updateStats(data.content || '');
-  connectWS(file.id);
+  // Server-side CRDT doc is authoritative; let Collab fetch via sync step 1.
+  editor.setValue('');
+  updateStats('');
+  Collab.connect(editor, {
+    fileId: file.id,
+    username: currentUser.username,
+    color: userColor,
+    basePath: BASE_PATH,
+  });
 }
 
 async function openFile(file) {
@@ -469,109 +437,6 @@ async function openFile(file) {
   await switchTab(file.id);
 }
 
-// ── Remote Cursors ──
-const remoteCursors = new Map(); // { username: CodeMirror.TextMarker }
-
-function clearCursors() {
-  remoteCursors.forEach(marker => marker.clear());
-  remoteCursors.clear();
-}
-
-function updateRemoteCursor(name, color, pos) {
-  if (!name || name === currentUser.username || !pos) return;
-  
-  if (remoteCursors.has(name)) {
-    remoteCursors.get(name).clear();
-  }
-
-  const cursorEl = document.createElement('div');
-  cursorEl.className = 'remote-cursor';
-  cursorEl.style.borderColor = color;
-  
-  const labelEl = document.createElement('div');
-  labelEl.className = 'remote-cursor-label';
-  labelEl.style.backgroundColor = color;
-  labelEl.textContent = name;
-  cursorEl.appendChild(labelEl);
-
-  const marker = editor.setBookmark(pos, { widget: cursorEl, insertLeft: true });
-  remoteCursors.set(name, marker);
-  
-  // Auto-hide label after 2 seconds of inactivity
-  setTimeout(() => {
-    if (remoteCursors.get(name) === marker) {
-      labelEl.style.opacity = '0';
-    }
-  }, 2000);
-}
-
-// ══════════ WEBSOCKET + PRESENCE ══════════
-
-function connectWS() {
-  if (ws) ws.close();
-  clearCursors();
-  
-  const loc = window.location;
-  let wsUrl = loc.protocol === 'https:' ? 'wss://' : 'ws://';
-  wsUrl += loc.host + BASE_PATH + '/ws/' + currentFileId + '?name=' + encodeURIComponent(window.__USER__.username) + '&color=' + encodeURIComponent(myColor);
-  
-  ws = new WebSocket(wsUrl);
-  ws.onopen = () => {
-    collabStatus.classList.add('online');
-    collabStatus.querySelector('.status-text').textContent = 'Live';
-  };
-  ws.onclose = () => {
-    collabStatus.classList.remove('online');
-    collabStatus.querySelector('.status-text').textContent = 'Offline';
-    collabUsersEl.innerHTML = '';
-    clearCursors();
-  };
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === 'presence') {
-        const oldUsers = new Set(collabUsers.map(u => u.name));
-        collabUsers = data.users || [];
-        const newUsers = new Set(collabUsers.map(u => u.name));
-        
-        // Remove cursors for users who left
-        for (const name of oldUsers) {
-          if (!newUsers.has(name) && remoteCursors.has(name)) {
-            remoteCursors.get(name).clear();
-            remoteCursors.delete(name);
-          }
-        }
-        renderCollabUsers();
-        return;
-      }
-      if (data.type === 'cursor') {
-        updateRemoteCursor(data.name, data.color, data.pos);
-        return;
-      }
-      if (data.type === 'change') {
-        isRemoteChange = true;
-        const cursor = editor.getCursor();
-        const scroll = editor.getScrollInfo();
-        editor.setValue(data.content);
-        editor.setCursor(cursor);
-        editor.scrollTo(scroll.left, scroll.top);
-        isRemoteChange = false;
-      }
-    } catch (e) {}
-  };
-}
-
-function renderCollabUsers() {
-  collabUsersEl.innerHTML = '';
-  collabUsers.forEach(u => {
-    const av = document.createElement('div');
-    av.className = 'collab-avatar';
-    av.style.background = u.color || '#58a6ff';
-    av.textContent = (u.name || '?')[0].toUpperCase();
-    av.title = u.name || 'Anonymous';
-    collabUsersEl.appendChild(av);
-  });
-}
 
 // ══════════ CONTEXT MENU ══════════
 
@@ -1185,16 +1050,8 @@ document.addEventListener('mouseup', () => {
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') {
     e.preventDefault();
-    if (currentFileId) {
-      const content = editor.getValue();
-      clearTimeout(saveTimeout);
-      saveStatusEl.textContent = 'Saving...';
-      fetch(`${BASE_PATH}/api/files/${currentFileId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
-      }).then(() => { saveStatusEl.textContent = 'Saved'; toast('Saved', 'success'); });
-    }
+    saveStatusEl.textContent = 'Saved';
+    setTimeout(() => { if (saveStatusEl.textContent === 'Saved') saveStatusEl.textContent = ''; }, 1500);
   }
 });
 
