@@ -30,7 +30,6 @@ const sharedProjectsGrid = document.getElementById('shared-projects-grid');
 const sharedSection = document.getElementById('shared-section');
 const previewEl = document.getElementById('preview-content');
 const collabStatus = document.getElementById('collab-status');
-const collabUsersEl = document.getElementById('collab-users');
 const saveStatusEl = document.getElementById('save-status');
 const fileNameEl = document.getElementById('current-file-name');
 const tabBar = document.getElementById('tab-bar');
@@ -811,6 +810,7 @@ document.getElementById('btn-git-pull').onclick = () => {
         });
         const d = await res.json();
         if (d.success) {
+          Collab.disconnect();
           toast('Pulled!', 'success');
           openTabs = []; currentFileId = null; fileNameEl.textContent = 'No file open';
           editor.setValue(''); previewEl.innerHTML = '';

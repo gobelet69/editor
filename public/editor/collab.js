@@ -32,7 +32,8 @@
       const el = document.getElementById('collab-status');
       if (!el) return;
       el.classList.toggle('online', online);
-      el.querySelector('.status-text').textContent = online ? 'Live' : 'Offline';
+      const txt = el.querySelector('.status-text');
+      if (txt) txt.textContent = online ? 'Live' : 'Offline';
     };
 
     ws.addEventListener('open', () => {
@@ -60,12 +61,11 @@
       if (kind === MSG_SYNC) {
         const enc = Y.encoding.createEncoder();
         Y.encoding.writeVarUint(enc, MSG_SYNC);
-        Y.readSyncMessage(dec, enc, doc, null);
+        Y.readSyncMessage(dec, enc, doc, ws);
         if (Y.encoding.length(enc) > 1) ws.send(Y.encoding.toUint8Array(enc));
       } else if (kind === MSG_AWARENESS) {
         const update = Y.decoding.readVarUint8Array(dec);
         Y.applyAwarenessUpdate(awareness, update, ws);
-        renderCollabUsers(awareness);
       }
     });
 
@@ -102,7 +102,11 @@
     const el = document.getElementById('collab-users');
     if (el) el.innerHTML = '';
     const st = document.getElementById('collab-status');
-    if (st) { st.classList.remove('online'); st.querySelector('.status-text').textContent = 'Offline'; }
+    if (st) {
+      st.classList.remove('online');
+      const txt = st.querySelector('.status-text');
+      if (txt) txt.textContent = 'Offline';
+    }
   }
 
   function renderCollabUsers(awareness) {
