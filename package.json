@@ -17,6 +17,8 @@
 		"wrangler": "^4.77.0"
 	},
 	"dependencies": {
-		"latex.js": "^0.12.6"
+		"latex.js": "^0.12.6",
+		"y-protocols": "^1.0.7",
+		"yjs": "^13.6.30"
 	}
 }
