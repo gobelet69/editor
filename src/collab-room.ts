@@ -34,8 +34,8 @@ export class CollabRoom implements DurableObject {
     const url = new URL(request.url);
 
     if (url.pathname === '/flush') {
-      await this.ensureLoaded();
       this.fileId = this.fileId || url.searchParams.get('fileId');
+      await this.ensureLoaded();
       await this.persistNow();
       return Response.json({ ok: true });
     }
