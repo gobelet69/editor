@@ -1,29 +1,21 @@
-import {
-	env,
-	createExecutionContext,
-	waitOnExecutionContext,
-	SELF,
-} from "cloudflare:test";
-import { describe, it, expect } from "vitest";
-import worker from "../src/index";
+import { describe, it, expect, beforeAll } from "vitest";
+import { SELF } from "cloudflare:test";
+import { bootstrap } from "./setup";
 
-// For now, you'll need to do something like this to get a correctly-typed
-// `Request` to pass to `worker.fetch()`.
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+// High-level smoke test. Detailed behavior lives in the per-feature *.spec.ts files.
+describe("editor worker smoke", () => {
+  beforeAll(async () => bootstrap());
 
-describe("Hello World worker", () => {
-	it("responds with Hello World! (unit style)", async () => {
-		const request = new IncomingRequest("http://example.com");
-		// Create an empty context to pass to `worker.fetch()`.
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
-		// Wait for all `Promise`s passed to `ctx.waitUntil()` to settle before running test assertions
-		await waitOnExecutionContext(ctx);
-		expect(await response.text()).toMatchInlineSnapshot(`"Hello World!"`);
-	});
+  it("unauthenticated root redirects to /auth/login", async () => {
+    const r = await SELF.fetch("https://example.com/", { redirect: "manual" });
+    expect(r.status).toBe(302);
+    expect(r.headers.get("Location")).toContain("/auth/login");
+  });
 
-	it("responds with Hello World! (integration style)", async () => {
-		const response = await SELF.fetch("https://example.com");
-		expect(await response.text()).toMatchInlineSnapshot(`"Hello World!"`);
-	});
+  it("unknown API path returns 404 when authed", async () => {
+    const r = await SELF.fetch("https://example.com/api/nope", {
+      headers: { Cookie: "sess=sess-alice" },
+    });
+    expect(r.status).toBe(404);
+  });
 });

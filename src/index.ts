@@ -142,7 +142,7 @@ export default {
     }
 
     // Temporary debug endpoint to verify env binding
-    if (url.pathname === '/editor/debug-env') {
+    if (url.pathname === '/debug-env') {
       return Response.json({ keys: Object.keys(env) });
     }
 
@@ -150,7 +150,10 @@ export default {
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/github/')) {
       const user = await getUser(request, env);
       if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      const res = await handleApi(request, env, user);
+      const inner = await handleApi(request, env, user);
+      // Response.redirect() and some other constructors return immutable headers,
+      // so rebuild the response before mutating headers.
+      const res = new Response(inner.body, { status: inner.status, headers: inner.headers });
       for (const [k, v] of Object.entries(corsHeaders())) res.headers.set(k, v);
       return res;
     }
