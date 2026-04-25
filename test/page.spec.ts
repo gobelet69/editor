@@ -5,11 +5,9 @@ import { bootstrap, authHeaders, OWNER_SESSION_ID } from "./setup";
 describe("server-rendered editor page", () => {
   beforeAll(async () => bootstrap());
 
-  it("redirects to login when unauthenticated (root)", async () => {
-    const r = await SELF.fetch("https://example.com/", { redirect: "manual" });
-    expect(r.status).toBe(302);
-    expect(r.headers.get("Location")).toBe("/auth/login?redirect=%2F");
-  });
+  // Note: bare "/" is served by the static-assets binding before the worker
+  // fetch handler runs in production; the worker is route-mounted at /editor*
+  // anyway, so / never reaches this worker. Only test /editor variants.
 
   it("redirects to login when unauthenticated (/editor)", async () => {
     const r = await SELF.fetch("https://example.com/editor", { redirect: "manual" });

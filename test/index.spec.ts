@@ -6,8 +6,8 @@ import { bootstrap } from "./setup";
 describe("editor worker smoke", () => {
   beforeAll(async () => bootstrap());
 
-  it("unauthenticated root redirects to /auth/login", async () => {
-    const r = await SELF.fetch("https://example.com/", { redirect: "manual" });
+  it("unauthenticated /editor redirects to /auth/login", async () => {
+    const r = await SELF.fetch("https://example.com/editor", { redirect: "manual" });
     expect(r.status).toBe(302);
     expect(r.headers.get("Location")).toContain("/auth/login");
   });
